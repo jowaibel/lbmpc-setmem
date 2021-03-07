@@ -17,6 +17,7 @@ t_end = 10;
 dt = 0.002;
 nSteps = ceil(t_end/dt);
 xtrim = [12.5591, -0.0721008, -1.31188e-08, -0.0940332]'; % [Va alpha q gamma]
+u_trim = [-0.0110968, 0]';
 x0 = xtrim;
 
 T = (t0:dt:t_end)';
@@ -29,7 +30,7 @@ for iStep = 1:nSteps
     u = [-0.0110968 0];
     [~, X_] = ode45(@(t_, x_) dyn_func_gam(x_, u), [0 dt/2 dt], X(iStep,:));
     X(iStep+1,:) = X_(end,:);
-    [~, Xl_] = ode45(@(t_, x_) A*(x_ - xtrim)+B*u', [0 dt/2 dt], Xl(iStep,:)');
+    [~, Xl_] = ode45(@(t_, x_) A*(x_ - xtrim)+B*(u'- u_trim), [0 dt/2 dt], Xl(iStep,:)');
     Xl(iStep+1,:) = Xl_(end,:);
     dXl(iStep,:) = A*(Xl(iStep,:)'- xtrim)+B*u';
 end
