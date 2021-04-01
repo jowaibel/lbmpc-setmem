@@ -4,8 +4,9 @@
 % which we can generate some data for random states and random actions. 
 % Let's consider states and actions around the x_trim point to generate 
 % this data.
-clc
+close all
 clear
+clc
 
 % Load models
 mdls = lon_LTI_models();
@@ -68,6 +69,18 @@ df_lin_ns = sim.lin_state_traj(:,2:end)';
 %obtain linearized approximation of next states (Using A(x-x_trim)+B(u-u_trim))
 %df_lin_ns = df_s(:,1:4) + dt * (Ac(:,:)*(df_s(:,1:4)-repmat(x_trim',nSteps,1))'+Bc(:,:)*(df_u(:,1)-repmat(u_trim(1)',nSteps,1))')';
 
+
+% Check discretization uncertainty
+A_true = sim.Ad; % Discretization from truncated Talor series (Euler discretization)
+B_true = sim.Bd;
+% M = expm([Ac Bc; zeros(nu, nx+nu)]*dt);   % Discretization with matrix-exponential-function
+% A_true(:,:) = M(1:nx, 1:nx);
+% B_true(:,:) = M(1:nx, (nx+1):(nx+nu));
+
+nData = size(df_s, 1);
+df_disc_ns = repmat(x_trim',nData,1) + (A_true*(df_lin_s(:,1:4)-repmat(x_trim',nData,1))' + B_true*(df_u(:,1)-repmat(u_trim(1)',nData,1))')';
+disc_uncert = max((df_lin_ns-df_disc_ns),[],1);
+
 %%
 figure
 sgtitle("Nextstate v/s state, Linearized model (red) and data (blue)")
@@ -103,23 +116,28 @@ end
 % generalizes for different elements in A and B with uncertainty.
 
 %% Initial guess for dynamics: XFLR model
-init_model = mdls.xflr_uw;
+JA = logical([ 
+    0 0 0 0; 
+    0 1 0 0; 
+    0 1 0 0; 
+    0 0 0 0]);
+JB = logical([ 
+    0; 
+    0; 
+    0; 
+    0]);
+J = [JA JB];
+idxJ = find(J);   
+
+% Initial guess for dynamics: XFLR model - but only uncertain values chosen in JA and JB 
+init_model = mdls.uw;
+init_model.sys.A(JA(:)) = mdls.xflr_uw.sys.A(JA(:));
+init_model.sys.B(JB(:)) = mdls.xflr_uw.sys.B(JB(:));
 %init_model = mdls.gamma;
 Ac0 = init_model.sys.A;
 Bc0 = init_model.sys.B(:,1);
 
-JA = logical([ 
-    1 1 1 0; 
-    1 1 1 0; 
-    1 1 1 0; 
-    0 0 0 0]);
-JB = logical([ 
-    1; 
-    1; 
-    1; 
-    0]);
-J = [JA JB];
-idxJ = find(J);   
+theta_uncert_true = [abs(Ac0 - Ac)./Ac0, abs(Bc0 - Bc)./Bc0]    % true uncertainty (used for debugging/selecting initial theta_uncert value)
 
 % Discretize initial model
 A0 = eye(nx) + dt * Ac0;
@@ -131,25 +149,24 @@ np = sum(J(:));
 ABi = zeros([size(AB0) np]);
 for iP = 1:np
     ABi_ = zeros(size(AB0));
-    ABi_(idxJ(iP)) = -dt;  % #jo: I ADDED A MINUS HERE
+    ABi_(idxJ(iP)) = dt;
     ABi(:,:,iP) = ABi_;
 end, clear ABi_
 
 % Bounds on delta parameters
-H_theta(1:2:2*np, 1:np) = eye(np);
-H_theta(2:2:2*np, 1:np) = -eye(np);
-h_theta = repmat(10.0 * ones(np,1), 2, 1);
+H_theta=[eye(np); -eye(np)];
+theta_uncert = 50.0;
+Ac0Bc0 = [Ac0, Bc0];
+h_theta = repmat(theta_uncert * abs(Ac0Bc0(idxJ)), 2, 1);
 
 % define initial parameter set
 Omega{1} = Polyhedron(H_theta, h_theta);
 
 % Define additive polytopic uncertainty description
-w_max = 0.01; 
-Hw(1:2:2*nx, 1:nx) = eye(nx);
-Hw(2:2:2*nx, 1:nx) = -eye(nx);
+w_max = 0.1; 
+Hw = [eye(nx); -eye(nx)];
 hw = w_max * ones(2*nx, 1);
 W = Polyhedron(Hw, hw); 
-%W = B0 * Polyhedron(Hw, hw); % #jo: I ADDED B* HERE
 
 % instantiate set membership estimator
 sm = SetMembership(Omega{1}, W, ABi, AB0);
@@ -157,34 +174,52 @@ sm = SetMembership(Omega{1}, W, ABi, AB0);
 %% Get Set Membership estimation
 nSteps = 100; 
 % Select nSteps samples from dataset, either randomly or equally distributed
-nData = size(df_s, 1);
 %dataIdx = randperm(nData);          % Random selection from dataset
-dataIdx = 1:floor(nData/nSteps):nData; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
+%dataIdx = 1:floor(nData/nSteps):nData; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
+dataIdx = 1:1:nSteps; % first nSteps points from dataset
 
 dTheta_hat = []; % estimated values
+figure;
 
 % Use nSteps samples for set membership identification
+iPlot = 1;
 for iStep = 1:nSteps
     id = dataIdx(iStep);
-    u = df_u(id,1)';
-    x = df_lin_s(id,:)';
-    xp = df_lin_ns(id,:)';
-    [Omega{iStep+1}, setD{iStep}] = sm.update(xp, x, u);    % update set membership
+    du = df_u(id,1)' - u_trim;
+    dx = df_lin_s(id,:)' - x_trim;
+    dxp = df_lin_ns(id,:)' - x_trim;
+    [Omega{iStep+1}, setD{iStep}] = sm.update(dxp, dx, du);    % update set membership
     dTheta_hat = [dTheta_hat; sm.theta_hat'];  % estimate parameter (center of the estimated set)
-end
+    
+    if (np == 2) %&& (iStep >= nSteps - 4) % Plot 2D set (if estimating only two parameters)
+        if ~setD{iStep}.isBounded
+            fprintf(['Step ' num2str(iStep) ' not bounded.\n']);
+            setD{iStep} = Polyhedron('A',setD{iStep}.A, 'b', setD{iStep}.b, 'lb', -1000*ones(2,1), 'ub', 1000*ones(2,1));
+        end
+        subplot(2,2,iPlot)
+        hold off
+        plot(setD{iStep},'color','b','alpha',0.1)   % Unfalsified set from this measurement
+        hold on
+        plot(Omega{iStep},'alpha',0.1)              % Present param set
+        plot(Omega{iStep+1})                        % Intersection
+        %xlim(1.2*[-h_theta(1), h_theta(3)])
+        %ylim(1.2*[-h_theta(2), h_theta(4)])
+        title(['k=', int2str(iStep)])
+        iPlot = iPlot + 1;
+        if iPlot > 4, iPlot = 1; end
+    end
+end, clear id du dx dxp iStep
 
 % Set-Membership estimated system
 dTheta_hat_end = dTheta_hat(end,:)';
 AB_vec = vec(AB0); 
-AB_vec(idxJ) = AB_vec(idxJ) + dTheta_hat_end;
-AB_ms = reshape(AB_vec, size(AB0));
+AB_vec(idxJ) = AB_vec(idxJ) + dt * dTheta_hat_end;
+AB_ms = reshape(AB_vec, size(AB0)); clear AB_vec dTheta_hat_end
 
 A_ms = AB_ms(:,1:nx); B_ms = AB_ms(:,nx+1:nx+nu);
 AB_ms = [A_ms B_ms]
 
 % Output true system (discrete) for comparison
-A_true = eye(nx) + dt * Ac;
-B_true = dt * Bc;
 AB_true = [A_true B_true]
 
 % Plot delta and absolute parameter values
@@ -192,14 +227,14 @@ for iP = 1:np
    figure
    subplot(1,2,1) % Delta parameter estimation
    plot(1:nSteps, dTheta_hat(:,iP), 'b');
-   title(['Param ' num2str(iP) ' value'])
+   title(['Param ' num2str(iP) ' dTheta hat'])
    
    subplot(1,2,2) % Parameter estimation 
    % True value (linearized dynamics) dashed line
    plot(1:nSteps, repmat(AB_true(idxJ(iP)), nSteps), 'k--'); hold on
    % Estimation history
-   plot(1:nSteps, AB0(idxJ(iP))+dTheta_hat(:,iP), 'b');
-   title(['Param ' num2str(iP) ' delta'])
+   plot(1:nSteps, AB0(idxJ(iP)) + dt * dTheta_hat(:,iP), 'b');
+   title(['Param ' num2str(iP) ' value'])
 end
 
 disp('Indices changed in A and B')
