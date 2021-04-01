@@ -27,9 +27,9 @@ classdef SimulatorClass < handle
             obj.Bd = obj.Bc * dt; % Discretization (Euler)
             
             % >E<xact >D<iscretization -> de
-            M = [obj.Ac obj.Bc; zeros(obj.nu, obj.nx) zeros(obj.nu, obj.nu)];
+            M = [obj.Ac obj.Bc; zeros(obj.nu, obj.nx+obj.nu)];
             F = expm(M*dt);
-            obj.Ade = F(1:obj.nx, 1:obj.nx); % Exact discretization
+            obj.Ade = F(1:obj.nx, 1:obj.nx);     % Exact discretization
             obj.Bde = F(1:obj.nx, obj.nx+1:end); % Exact discretization
         end
         
