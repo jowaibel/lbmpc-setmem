@@ -1,20 +1,50 @@
+clc
+clear
 
 % Load models
-lon_LTI_models;
+mdls = lon_LTI_models();
 addpath('nl_dynamics')
 
 % Select model (linear and nonlinear)
-mdl = mdls.gamma;
-A = mdl.sys.A;
-B = mdl.sys.B;
+mdl = mdls.uw; % Select linear model
+
+% Remove throttle input
+mdl.sys = ss(mdl.sys.A, mdl.sys.B(:,1), mdl.sys.C, mdl.sys.D(:,1), 'StateName', mdl.sys.StateName, 'StateUnit', mdl.sys.StateUnit, ...
+    'InputName', mdl.sys.InputName{1}, 'InputUnit', mdl.sys.InputUnit{1}, ...
+     'OutputName', mdl.sys.OutputName);
+mdl.u_trim = mdl.u_trim(1);
+    
+Ac = mdl.sys.A
+Bc = mdl.sys.B
 x_trim = mdl.x_trim; nx = length(x_trim);
 u_trim = mdl.u_trim; nu = length(u_trim);
 
-dyn_func = @dyn_func_gam;
+dyn_func = @dyn_func_uw; % Select (same) nonlinear model
 
 % Create sim for model
 dt = 0.01; % Simulation discretization
 sim = SimulatorClass(dyn_func, mdl, dt);
+
+% Simulate
+t0    = 0;
+t_end = 4;
+T = (t0:dt:t_end);       % Time vector (s)
+
+% Possible identification inputs
+ident_dt = 0.16; % dt in 3*dt, 2*dt, 1*dt, 1*dt
+ident2211 = kron([1 1 -1 -1 1 -1], [ones(1, ident_dt/dt)]);
+ident3211 = kron([1 1 1 -1 -1 1 -1], [ones(1, ident_dt/dt)]);
+identSig = ident3211;
+
+% Create input trajectory containing identification sequence
+% U = zeros(2,length(T));
+U = repmat(u_trim, 1, length(T));
+idxStart = find(T>0.1, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(20) * identSig; % Insert ident command starting at 0.25s
+idxStart = find(T>2.25, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(20) * -identSig;
+
+% Simulate both nonlinear and linear model in parallel (same initial state and control trajectory)
+sim.simulate(t0, t_end, mdl.x_trim, U);
+sim.plotStateTrajectrory();
 
 %% Setup Set Membership Estimation
 % State constraints; Hx*x <= bx
