@@ -93,7 +93,7 @@ classdef SimulatorClass < handle
             clf(1);
             for ix=1:obj.nx
                 subplot(obj.nx, 1, ix);
-                plot(T, X(ix,:), T, Xl(ix,:), T, Xld(ix,:), T, Xlde(ix,:));
+                plot(T, X(ix,:), T, Xl(ix,:), T, Xld(ix,:), '.', T, Xlde(ix,:), '.');
                 title(obj.mdl.sys.StateName{ix});
                 ylabel(obj.mdl.sys.StateUnit{ix});
             end
