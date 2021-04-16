@@ -6,7 +6,7 @@ mdls = lon_LTI_models();
 addpath('nl_dynamics')
 
 % Select model (linear and nonlinear)
-mdl = mdls.uw; % Select linear model
+mdl = mdls.pitch_withPos; % Select linear model
 
 % Remove throttle input
 mdl.sys = ss(mdl.sys.A, mdl.sys.B(:,1), mdl.sys.C, mdl.sys.D(:,1), 'StateName', mdl.sys.StateName, 'StateUnit', mdl.sys.StateUnit, ...
@@ -19,7 +19,7 @@ Bc = mdl.sys.B
 x_trim = mdl.x_trim; nx = length(x_trim);
 u_trim = mdl.u_trim; nu = length(u_trim);
 
-dyn_func = @dyn_func_uw; % Select (same) nonlinear model
+dyn_func = @dyn_func_theta_withPos; % Select (same) nonlinear model
 
 % Create sim for model
 dt = 0.01; % Simulation discretization
@@ -43,59 +43,9 @@ idxStart = find(T>0.1, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(
 idxStart = find(T>2.25, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(20) * -identSig;
 
 % Simulate both nonlinear and linear model in parallel (same initial state and control trajectory)
-sim.simulate(t0, t_end, mdl.x_trim, U);
-sim.plotStateTrajectrory();
-
-%% Setup Set Membership Estimation
-% State constraints; Hx*x <= bx
-% Hx=[1 0 0 0;...
-%     -1 0 0 0;...
-%     0 1 0 0;...
-%     0 -1 0 0;...
-%     0 0 1 0;...
-%     0 0 -1 0;...
-%     0 0 0 1;...
-%     0 0 0 -1];
-% bx=[inf; inf; inf; inf; inf; inf; inf; inf]; %irrelevant at the moment
-% 
-% % Input constraints; Hu*u <= bu
-% Hu=[1;-1];
-% bu=[inf;inf];   %irrelevant at the moment
-% 
-% % Instantiate (Discrete) System
-% Ad = eye(size(A,1))+dt*A; Bd = dt*B;
-% sysd = LinearSystem(Ad, Bd, Hx, bx, Hu, bu);
-% 
-% A0 = A; B0 = B(:,1);
-% A0(1,1:2) = 1.1 * A0(1,1:2); B0(1) = 1.0 * B0(1);
-% 
-% % Discrete system
-% Ad0 = eye(4) + dt*A0; Bd0 = dt*B0;
-% 
-% AB = [Ad0, Bd0];
-% 
-% ABi = zeros(4,5,2);
-% ABi(1,1,1) = dt;        % Delta X_u
-% ABi(1,2,2) = dt;        % Delta X_w
-% 
-% % initial bounds on parameters
-% uncert = 0.3;
-% H_theta = [eye(2); -eye(2)];
-% h_theta = uncert * abs([A0(1,1), A0(1,2)])';
-% h_theta(3:4) = h_theta(1:2);
-% 
-% % define initial paramter set
-% Omega{1} = Polyhedron(H_theta,h_theta);
-% 
-% w_max = 0.05;
-% % Define additive polytopic uncertainty description
-% Hw = [1 0; -1 0; ...
-%     0 1; 0 -1];
-% hw = w_max * ones(4,1);
-% W = Polyhedron(Hw, hw);
-% 
-% % instantiate set membership estimator
-% sm = SetMembership(Omega{1},W, ABi, AB);
+% x0 = mdl.x_trim;
+% sim.simulate(t0, t_end, x0, U);
+% sim.plotStateTrajectrory();
 
 %% Simulate
 t0 = 0;
@@ -104,7 +54,7 @@ T = (t0:dt:t_end);
 
 nSteps = ceil(t_end/dt);
 T = (t0:dt:t_end);
-X = [sim.x_trim, zeros(4, nSteps)]; % nonlinear state trajectory
+X = [sim.x_trim, zeros(6, nSteps)]; % nonlinear state trajectory
 Xl = X;                     % linear state trajectory
 
 % Possible identification inputs
@@ -119,13 +69,14 @@ U = repmat(sim.u_trim, 1, length(T));
 idxStart = find(T>0.25, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(20) * identSig;
 % idxStart = find(T>2.25, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(20) * identSig;
 
-theta_hat = []; % estimated values
+%theta_hat = []; % estimated values
 
-sim.simulate(t0, t_end, mdl.x_trim, U);
+x0 = mdl.x_trim;
+sim.simulate(t0, t_end, x0, U);
 sim.plotStateTrajectrory();
-
+return
 for iStep = 1:nSteps
-%     X(:,iStep+1)  = sim.simulate_one_step(X(:,iStep), U(:,iStep));
+    X(:,iStep+1)  = sim.simulate_one_step(X(:,iStep), U(:,iStep));
 %     [Xl(:,iStep+1), ~] = sim.simulate_one_step_lin(Xl(:,iStep), U(:,iStep));
     
     % Update Set Membership Estimation
@@ -134,7 +85,7 @@ for iStep = 1:nSteps
 end
 
 % Plot trajectory
-%sim.plotStateTrajectrory(T, X, Xl);
+sim.plotStateTrajectrory(T, X);
 
 return
 %%

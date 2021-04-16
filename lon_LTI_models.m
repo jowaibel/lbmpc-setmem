@@ -86,6 +86,30 @@ mdls.pitch.sys = ss(A, B, C, D, 'StateName', state_names, 'StateUnit', state_uni
 mdls.pitch.x_trim = x_trim;
 mdls.pitch.u_trim = u_trim;
 
+% xflr-Pvw-YR withPos ----------------------------------------------
+state_names = {'Va'  'alpha' 'q'  'theta', 'posHor', 'posDown'};
+state_units = {'m/s' 'rad' 'rad/s' 'rad', 'm', 'm'};
+output_names = state_names;
+
+x_trim = [12.5582, -0.0720904, -4.02425e-09, -0.166115, 0, -100]';
+u_trim = [-0.0111063, 0]';
+
+A = [A zeros(4, 2);
+    zeros(2, 6)];
+B = [B
+    0 0;
+    0 0];
+nx = size(A,2);
+nu = size(B,2);
+C = eye(nx);
+D = zeros(nx, nu);
+
+mdls.pitch_withPos.sys = ss(A, B, C, D, 'StateName', state_names, 'StateUnit', state_units, ...
+    'InputName', input_names, 'InputUnit', input_units, ...
+    'OutputName', output_names);
+mdls.pitch_withPos.x_trim = x_trim;
+mdls.pitch_withPos.u_trim = u_trim;
+
 %% x = [Va, alpha, q, gamma]
 state_names = {'Va'  'alpha' 'q'  'gamma'};
 state_units = {'m/s' 'rad' 'rad/s' 'rad'};
@@ -140,6 +164,28 @@ mdls.gamma.sys = ss(A, B, C, D, 'StateName', state_names, 'StateUnit', state_uni
 mdls.gamma.x_trim = x_trim;
 mdls.gamma.u_trim = u_trim;
 
+% xflr-Pvw-YR with Pos ----------------------------------------------
+state_names = {'Va'  'alpha' 'q'  'gamma', 'posHor', 'posDown'};
+state_units = {'m/s' 'rad' 'rad/s' 'rad', 'm', 'm'};
+output_names = state_names;
+
+x_trim = [12.5591, -0.0721008, -1.31188e-08, -0.0940332, 0, -100]';
+A = [A zeros(4, 2);
+     zeros(2, 6)];
+B = [B
+     0 0;
+     0 0];
+nx = size(A,2);
+nu = size(B,2);
+C = eye(nx);
+D = zeros(nx, nu);
+
+mdls.gamma_withPos.sys = ss(A, B, C, D, 'StateName', state_names, 'StateUnit', state_units, ...
+    'InputName', input_names, 'InputUnit', input_units, ...
+    'OutputName', output_names);
+mdls.gamma_withPos.x_trim = x_trim;
+mdls.gamma_withPos.u_trim = u_trim;
+
 %% x = [vx, vz, q, theta]
 state_names = {'vx'  'vz' 'q'  'theta'};
 state_units = {'m/s' 'm/s' 'rad/s' 'rad'};
@@ -192,5 +238,29 @@ mdls.uw.sys = ss(A, B, C, D, 'StateName', state_names, 'StateUnit', state_units,
     'OutputName', output_names);
 mdls.uw.x_trim = x_trim;
 mdls.uw.u_trim = u_trim;
+
+% xflr-Pvw-YR withPos ----------------------------------------------
+state_names = {'vx'  'vz' 'q'  'theta', 'posHor', 'posDown'};
+state_units = {'m/s' 'm/s' 'rad/s' 'rad', 'm', 'm'};
+output_names = state_names;
+
+x_trim = [12.4573, -0.888532, 1.38132e-08, -0.164542 0 -100]';
+u_trim = [-0.0119153, 0]';
+
+A = [A zeros(4, 2);
+     zeros(2, 6)];
+B = [B
+     0 0;
+     0 0];
+nx = size(A,2);
+nu = size(B,2);
+C = eye(nx);
+D = zeros(nx, nu);
+ 
+mdls.uw_withPos.sys = ss(A, B, C, D, 'StateName', state_names, 'StateUnit', state_units, ...
+    'InputName', input_names, 'InputUnit', input_units, ...
+    'OutputName', output_names);
+mdls.uw_withPos.x_trim = x_trim;
+mdls.uw_withPos.u_trim = u_trim;
 
 end

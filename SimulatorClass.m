@@ -58,11 +58,11 @@ classdef SimulatorClass < handle
             nSteps = ceil(t_end/obj.dt);
             
             T = (t0:obj.dt:t_end);
-            X = [x0, zeros(4, nSteps)]; % nonlinear state trajectory
+            X = [x0, zeros(obj.nx, nSteps)]; % nonlinear state trajectory
             Xl = X;                % linear state trajectory
             dXl = Xl;              % continuous linear dynamics trajectory
-            Xld = [x0, zeros(4, nSteps)]; % linear discrete state trajectory
-            Xlde = [x0, zeros(4, nSteps)]; % linear discrete state trajectory
+            Xld = [x0, zeros(obj.nx, nSteps)]; % linear discrete state trajectory
+            Xlde = [x0, zeros(obj.nx, nSteps)]; % linear discrete state trajectory
             
             for iStep = 1:nSteps
                 X(:,iStep+1)  = obj.simulate_one_step(X(:,iStep), U(:,iStep));
