@@ -43,6 +43,7 @@ ident_dt = 0.16; % dt in 3*dt, 2*dt, 1*dt, 1*dt
 ident2211 = kron([1 1 -1 -1 1 -1], [ones(1, ident_dt/dt)]);
 ident3211 = kron([1 1 1 -1 -1 1 -1], [ones(1, ident_dt/dt)]);
 identSig = ident3211;
+identSig = identSig .* (rand(1,length(identSig)) * 0.2 + 0.9);
 
 % Create input trajectory containing identification sequence
 % U = zeros(2,length(T));
@@ -77,31 +78,43 @@ B_true = sim.Bd;
 % A_true(:,:) = M(1:nx, 1:nx);
 % B_true(:,:) = M(1:nx, (nx+1):(nx+nu));
 
+% Cut whole time and input signals
+cutIdx = (T > 0 & T < 1.9);
+T = T(cutIdx);
+t0 = T(1);
+t_end = T(end);
+U = U(cutIdx);
+df_u = df_u(cutIdx,:);
+df_s = df_s(cutIdx,:);
+df_ns = df_ns(cutIdx,:);
+df_lin_s = df_lin_s(cutIdx,:);
+df_lin_ns = df_lin_ns(cutIdx,:);
+
 nData = size(df_s, 1);
 df_disc_ns = repmat(x_trim',nData,1) + (A_true*(df_lin_s(:,1:4)-repmat(x_trim',nData,1))' + B_true*(df_u(:,1)-repmat(u_trim(1)',nData,1))')';
 disc_uncert = max((df_lin_ns-df_disc_ns),[],1);
 
 %%
-figure
-sgtitle("Nextstate v/s state, Linearized model (red) and data (blue)")
-for var = 1:4
-    subplot(2,2,var)
-    plot(df_s(:,var),df_ns(:,var), 'bp', 'MarkerSize', 1) %state against next state
-    hold on
-    plot(df_s(:,var),df_lin_ns(:,var), 'rp', 'MarkerSize', 1)
-    xlim([min(df_s(:,var)),max(df_s(:,var))]);
-    ylim([min(df_ns(:,var)),max(df_ns(:,var))]);
-    xlabel(mdl.sys.StateName{var});
-end
-figure
-sgtitle("Nextstate(data) - Nextstate(linearized model)")
-for var = 1:4
-    subplot(2,2,var)
-    plot(df_s(:,var),df_ns(:,var)-df_lin_ns(:,var), 'p', 'MarkerSize', 1)
-    xlim([min(df_s(:,var)),max(df_s(:,var))]);
-    ylim([min(df_ns(:,var)-df_lin_ns(:,var)),max(df_ns(:,var)-df_lin_ns(:,var))]);
-    xlabel(mdl.sys.StateName{var});
-end
+% figure
+% sgtitle("Nextstate v/s state, Linearized model (red) and data (blue)")
+% for var = 1:4
+%     subplot(2,2,var)
+%     plot(df_s(:,var),df_ns(:,var), 'bp', 'MarkerSize', 1) %state against next state
+%     hold on
+%     plot(df_s(:,var),df_lin_ns(:,var), 'rp', 'MarkerSize', 1)
+%     xlim([min(df_s(:,var)), max(df_s(:,var))]);
+%     ylim([min(df_ns(:,var)),max(df_ns(:,var))]);
+%     xlabel(mdl.sys.StateName{var});
+% end
+% figure
+% sgtitle("Nextstate(data) - Nextstate(linearized model)")
+% for var = 1:4
+%     subplot(2,2,var)
+%     plot(df_s(:,var),df_ns(:,var)-df_lin_ns(:,var), 'p', 'MarkerSize', 1)
+%     xlim([min(df_s(:,var)),max(df_s(:,var))]);
+%     ylim([min(df_ns(:,var)-df_lin_ns(:,var)),max(df_ns(:,var)-df_lin_ns(:,var))]);
+%     xlabel(mdl.sys.StateName{var});
+% end
 
 %% Set Membership Estimation for dimensional derivatives
 % I have used the model for xdot=A(x-x_trim)+B*(u-u_trim) as 
@@ -117,9 +130,9 @@ end
 
 %% Initial guess for dynamics: XFLR model
 JA = logical([ 
+    0 1 0 0; 
     0 0 0 0; 
-    0 1 0 0; 
-    0 1 0 0; 
+    0 0 1 0; 
     0 0 0 0]);
 JB = logical([ 
     0; 
@@ -138,11 +151,16 @@ Ac0 = init_model.sys.A;
 Bc0 = init_model.sys.B(:,1);
 
 theta_uncert_true = [abs(Ac0 - Ac)./Ac0, abs(Bc0 - Bc)./Bc0]    % true uncertainty (used for debugging/selecting initial theta_uncert value)
+theta_uncert_true(isnan(theta_uncert_true)) = 0;
 
 % Discretize initial model
 A0 = eye(nx) + dt * Ac0;
 B0 = dt * Bc0;
+% M = expm([Ac0 Bc0; zeros(nu, nx+nu)]*dt);   % Discretization with matrix-exponential-function
+% A0(:,:) = M(1:nx, 1:nx);
+% B0(:,:) = M(1:nx, (nx+1):(nx+nu));
 AB0 = [A0 B0]
+
 
 % this is to indicate to membership function which parameters has uncertainty
 np = sum(J(:));
@@ -163,7 +181,7 @@ h_theta = repmat(theta_uncert * abs(Ac0Bc0(idxJ)), 2, 1);
 Omega{1} = Polyhedron(H_theta, h_theta);
 
 % Define additive polytopic uncertainty description
-w_max = 0.1; 
+w_max = 0.8;%0.041; 
 Hw = [eye(nx); -eye(nx)];
 hw = w_max * ones(2*nx, 1);
 W = Polyhedron(Hw, hw); 
@@ -171,14 +189,15 @@ W = Polyhedron(Hw, hw);
 % instantiate set membership estimator
 sm = SetMembership(Omega{1}, W, ABi, AB0);
 
-%% Get Set Membership estimation
-nSteps = 100; 
+% Get Set Membership estimation
+nSteps = 91; 
 % Select nSteps samples from dataset, either randomly or equally distributed
 %dataIdx = randperm(nData);          % Random selection from dataset
 %dataIdx = 1:floor(nData/nSteps):nData; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
 dataIdx = 1:1:nSteps; % first nSteps points from dataset
 
 dTheta_hat = []; % estimated values
+setD = {};
 figure;
 
 % Use nSteps samples for set membership identification
@@ -209,6 +228,7 @@ for iStep = 1:nSteps
         if iPlot > 4, iPlot = 1; end
     end
 end, clear id du dx dxp iStep
+figure, plot(Omega{nSteps+1})
 
 % Set-Membership estimated system
 dTheta_hat_end = dTheta_hat(end,:)';

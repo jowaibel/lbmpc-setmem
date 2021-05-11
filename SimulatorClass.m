@@ -55,7 +55,7 @@ classdef SimulatorClass < handle
         
         function obj = simulate(obj, t0, t_end, x0, U)
             
-            nSteps = ceil(t_end/obj.dt);
+            nSteps = ceil((t_end-t0)/obj.dt);
             
             T = (t0:obj.dt:t_end);
             X = [x0, zeros(obj.nx, nSteps)]; % nonlinear state trajectory

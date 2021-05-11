@@ -37,14 +37,18 @@ classdef SetMembership < handle
             D = Polyhedron(-obj.W.A*phixu, obj.W.b - obj.W.A*(xp - obj.AB0*[x;u]));
 
             % Compute intersection
-            Omega = obj.Omega.intersect(D);
-            % --------- Stop Modifying Code Here ------------
-            
-            obj.Omega = Omega.minHRep;
-            
-            % Point Estimate (center of bounding box)
-            aux = obj.Omega.outerApprox;
-            obj.theta_hat = sum(aux.A.*aux.b)'/2;
+            if D.isBounded() %&& obj.Omega.intersect(D)
+                Omega = obj.Omega.intersect(D);
+                % --------- Stop Modifying Code Here ------------
+                
+                obj.Omega = Omega.minHRep;
+                
+                % Point Estimate (center of bounding box)
+                aux = obj.Omega.outerApprox;
+                obj.theta_hat = sum(aux.A.*aux.b)'/2;
+            else
+                Omega = obj.Omega;
+            end
         end
         
         function phixu = get_phixu(obj,x,u)
