@@ -181,7 +181,7 @@ h_theta = repmat(theta_uncert * abs(Ac0Bc0(idxJ)), 2, 1);
 Omega{1} = Polyhedron(H_theta, h_theta);
 
 % Define additive polytopic uncertainty description
-w_max = 0.8;%0.041; 
+w_max = 0.08; %0.041; 
 Hw = [eye(nx); -eye(nx)];
 hw = w_max * ones(2*nx, 1);
 W = Polyhedron(Hw, hw); 
