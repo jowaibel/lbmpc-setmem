@@ -250,6 +250,7 @@ for iP = 1:np
    hold on;
    patch([stepIdx'; flipud(stepIdx')], [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
    plot(1:nSteps, dTheta_hat(:,iP), 'b');
+   ylim([mean(dTheta_bounds(:,2*iP)), mean(dTheta_bounds(:,2*iP-1))])
    title(['Param ' num2str(iP) ' dTheta hat'])
    
    subplot(1,2,2) % Parameter estimation 
@@ -257,7 +258,9 @@ for iP = 1:np
    % True value (linearized dynamics) dashed line
    plot(stepIdx, repmat(AB_true(idxJ(iP)), nSteps), 'k--');
    % Estimation history
+   patch([stepIdx'; flipud(stepIdx')], AB0(idxJ(iP)) + dt * [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
    plot(stepIdx, AB0(idxJ(iP)) + dt * dTheta_hat(:,iP), 'b');
+   ylim(AB0(idxJ(iP)) + dt * [mean(dTheta_bounds(:,2*iP)), mean(dTheta_bounds(:,2*iP-1))])
    title(['Param ' num2str(iP) ' value'])
 end
 
