@@ -12,7 +12,7 @@ clc
 mdls = lon_LTI_models();
 addpath('nl_dynamics')
 
-% Select model (linear and nonlinear)
+% ## USER ## Select model (linear and nonlinear)
 mdl = mdls.uw; % Select linear model
 
 % Remove throttle input
@@ -27,7 +27,7 @@ Bc = mdl.sys.B
 x_trim = mdl.x_trim; nx = length(x_trim);
 u_trim = mdl.u_trim; nu = length(u_trim);
 
-dyn_func = @dyn_func_uw; % Select (same) nonlinear model
+dyn_func = @dyn_func_uw; % ## USER ## Select (same) nonlinear model
 
 % Create sim for model
 dt = 0.01; % Simulation discretization
@@ -43,7 +43,7 @@ ident_dt = 0.16; % dt in 3*dt, 2*dt, 1*dt, 1*dt
 ident2211 = kron([1 1 -1 -1 1 -1], [ones(1, ident_dt/dt)]);
 ident3211 = kron([1 1 1 -1 -1 1 -1], [ones(1, ident_dt/dt)]);
 identSig = ident3211;
-identSig = identSig .* (rand(1,length(identSig)) * 0.2 + 0.9);
+identSig = identSig .* (rand(1,length(identSig)) * 0.2 + 0.9); % Randomize a bit to gain more information
 
 % Create input trajectory containing identification sequence
 % U = zeros(2,length(T));
@@ -150,13 +150,13 @@ init_model.sys.B(JB(:)) = mdls.xflr_uw.sys.B(JB(:));
 Ac0 = init_model.sys.A;
 Bc0 = init_model.sys.B(:,1);
 
-theta_uncert_true = [abs(Ac0 - Ac)./Ac0, abs(Bc0 - Bc)./Bc0]    % true uncertainty (used for debugging/selecting initial theta_uncert value)
-theta_uncert_true(isnan(theta_uncert_true)) = 0;
+theta_uncert_true = [abs(Ac0 - Ac)./Ac0, abs(Bc0 - Bc)./Bc0];    % true uncertainty (used for debugging/selecting initial theta_uncert value)
+theta_uncert_true(isnan(theta_uncert_true)) = 0
 
 % Discretize initial model
-A0 = eye(nx) + dt * Ac0;
+A0 = eye(nx) + dt * Ac0;                      % Euler approximation
 B0 = dt * Bc0;
-% M = expm([Ac0 Bc0; zeros(nu, nx+nu)]*dt);   % Discretization with matrix-exponential-function
+% M = expm([Ac0 Bc0; zeros(nu, nx+nu)]*dt);   % Exact discretization with matrix-exponential-function
 % A0(:,:) = M(1:nx, 1:nx);
 % B0(:,:) = M(1:nx, (nx+1):(nx+nu));
 AB0 = [A0 B0]
@@ -190,25 +190,28 @@ W = Polyhedron(Hw, hw);
 sm = SetMembership(Omega{1}, W, ABi, AB0);
 
 % Get Set Membership estimation
-nSteps = 91; 
+nSteps = nData; 
 % Select nSteps samples from dataset, either randomly or equally distributed
 %dataIdx = randperm(nData);          % Random selection from dataset
 %dataIdx = 1:floor(nData/nSteps):nData; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
 dataIdx = 1:1:nSteps; % first nSteps points from dataset
 
-dTheta_hat = []; % estimated values
-setD = {};
+dTheta_hat = zeros(nSteps, np); % estimated values
+dTheta_bounds = zeros(nSteps, 2*np);
+setD = cell(1, nSteps);
 figure;
 
 % Use nSteps samples for set membership identification
 iPlot = 1;
-for iStep = 1:nSteps
+stepIdx = 1:nSteps;
+for iStep = stepIdx
     id = dataIdx(iStep);
     du = df_u(id,1)' - u_trim;
     dx = df_lin_s(id,:)' - x_trim;
     dxp = df_lin_ns(id,:)' - x_trim;
     [Omega{iStep+1}, setD{iStep}] = sm.update(dxp, dx, du);    % update set membership
-    dTheta_hat = [dTheta_hat; sm.theta_hat'];  % estimate parameter (center of the estimated set)
+    dTheta_hat(iStep,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
+    dTheta_bounds(iStep,:) = sm.theta_bounds';
     
     if (np == 2) %&& (iStep >= nSteps - 4) % Plot 2D set (if estimating only two parameters)
         if ~setD{iStep}.isBounded
@@ -221,14 +224,12 @@ for iStep = 1:nSteps
         hold on
         plot(Omega{iStep},'alpha',0.1)              % Present param set
         plot(Omega{iStep+1})                        % Intersection
-        %xlim(1.2*[-h_theta(1), h_theta(3)])
-        %ylim(1.2*[-h_theta(2), h_theta(4)])
         title(['k=', int2str(iStep)])
         iPlot = iPlot + 1;
         if iPlot > 4, iPlot = 1; end
     end
 end, clear id du dx dxp iStep
-figure, plot(Omega{nSteps+1})
+%Omega_end = Omega{nSteps+1}; %figure, plot(Omega_end) % plot final parameter set
 
 % Set-Membership estimated system
 dTheta_hat_end = dTheta_hat(end,:)';
@@ -246,21 +247,22 @@ AB_true = [A_true B_true]
 for iP = 1:np
    figure
    subplot(1,2,1) % Delta parameter estimation
+   hold on;
+   patch([stepIdx'; flipud(stepIdx')], [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
    plot(1:nSteps, dTheta_hat(:,iP), 'b');
    title(['Param ' num2str(iP) ' dTheta hat'])
    
    subplot(1,2,2) % Parameter estimation 
+   hold on
    % True value (linearized dynamics) dashed line
-   plot(1:nSteps, repmat(AB_true(idxJ(iP)), nSteps), 'k--'); hold on
+   plot(stepIdx, repmat(AB_true(idxJ(iP)), nSteps), 'k--');
    % Estimation history
-   plot(1:nSteps, AB0(idxJ(iP)) + dt * dTheta_hat(:,iP), 'b');
+   plot(stepIdx, AB0(idxJ(iP)) + dt * dTheta_hat(:,iP), 'b');
    title(['Param ' num2str(iP) ' value'])
 end
 
-disp('Indices changed in A and B')
-A_ms ~= A0
-B_ms ~= B0
-
+disp('Indices changed in A and B:')
+disp([A_ms ~= A0, B_ms ~= B0])
 return
 
 % These membership estimations should'nt converge, as the initial guess is the horizontal line, its a different plot that the one used before.

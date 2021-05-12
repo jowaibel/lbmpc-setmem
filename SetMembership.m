@@ -3,6 +3,7 @@ classdef SetMembership < handle
         Omega
         W
         theta_hat
+        theta_bounds
         AB_hat
         np
         ny
@@ -25,30 +26,22 @@ classdef SetMembership < handle
         function [Omega, D] = update(obj,xp,x,u)
             phixu = obj.get_phixu(x,u);
             
-            % --------- Start Modifying Code Here -----------
-%             % Compute non falsified set
-%             D = Polyhedron(TODO);
-% 
-%             % Compute intersection
-%             Omega = TODO;
-            % --------- Stop Modifying Code Here ---------           
-            % --------- Start Modifying Code Here -----------
             % Compute non falsified set
             D = Polyhedron(-obj.W.A*phixu, obj.W.b - obj.W.A*(xp - obj.AB0*[x;u]));
-
+            
             % Compute intersection
             if D.isBounded() %&& obj.Omega.intersect(D)
                 Omega = obj.Omega.intersect(D);
-                % --------- Stop Modifying Code Here ------------
                 
                 obj.Omega = Omega.minHRep;
-                
-                % Point Estimate (center of bounding box)
-                aux = obj.Omega.outerApprox;
-                obj.theta_hat = sum(aux.A.*aux.b)'/2;
             else
                 Omega = obj.Omega;
             end
+            % Point Estimate (center of bounding box)
+            aux = Omega.outerApprox;
+            bounds_mat = aux.A.*aux.b;
+            obj.theta_hat = sum(bounds_mat)'/2;
+            obj.theta_bounds = nonzeros(bounds_mat);
         end
         
         function phixu = get_phixu(obj,x,u)
