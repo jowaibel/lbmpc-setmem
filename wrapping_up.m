@@ -56,7 +56,7 @@ sim.simulate(t0, t_end, mdl.x_trim, U);
 
 % Plot: {nonlinear, linearized} continuous dynamics, integrated with ode45
 %       discretized linearized {d: Euler, de: exact}
-sim.plotStateTrajectrory();
+sim.plotStateTrajectory();
 
 % Assign variables to comply with existing framework
 df_u = U(:,1:end-1)';
@@ -81,9 +81,9 @@ B_true = sim.Bd;
 % Cut whole time and input signals
 cutIdx = (T > 0 & T < 1.9);
 T = T(cutIdx);
-t0 = T(1);
-t_end = T(end);
-U = U(cutIdx);
+%t0 = T(1);
+%t_end = T(end);
+%U = U(cutIdx);
 df_u = df_u(cutIdx,:);
 df_s = df_s(cutIdx,:);
 df_ns = df_ns(cutIdx,:);
@@ -266,6 +266,15 @@ end
 
 disp('Indices changed in A and B:')
 disp([A_ms ~= A0, B_ms ~= B0])
+
+sim.addModels(AB0, AB_ms);                          % add initial guess model and estimated model to simulator class
+sim.simulate_estimSyst(t0, t_end, mdl.x_trim, U);   % simulate initial guess and estimated model
+sim.plotEstimStateTrajectory();                     % plot state trajectories of true, initial and estimated system
+
+
+
+
+
 return
 
 % These membership estimations should'nt converge, as the initial guess is the horizontal line, its a different plot that the one used before.
