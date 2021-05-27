@@ -187,7 +187,7 @@ hw = w_max * ones(2*nx, 1);
 W = Polyhedron(Hw, hw); 
 
 % instantiate set membership estimator
-sm = SetMembership(Omega{1}, W, ABi, AB0);
+sm = SetMembership(Omega{1}, W, ABi, AB0, w_max, nx);
 
 % Get Set Membership estimation
 nSteps = nData; 

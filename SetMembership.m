@@ -9,10 +9,13 @@ classdef SetMembership < handle
         ny
         AB0
         ABi
+        nx
+        Omega_previous
+        w_ini
     end
     
     methods
-        function obj = SetMembership(Omega,W, ABi, AB0)
+        function obj = SetMembership(Omega,W, ABi, AB0,w_ini,nx)
             obj.Omega = Omega;
             obj.W = W;
             obj.ABi = ABi;
@@ -21,27 +24,60 @@ classdef SetMembership < handle
             obj.ny = size(obj.ABi,1);
             aux = obj.Omega.outerApprox;
             obj.theta_hat = sum(aux.A.*aux.b)'/2;
+            obj.w_ini = w_ini;
+            obj.nx = nx;
         end
         
         function [Omega, D] = update(obj,xp,x,u)
+            obj.Omega_previous = obj.Omega;
+            w = obj.w_ini;
+            endwhile = 0;
+                
             phixu = obj.get_phixu(x,u);
             
-            % Compute non falsified set
-            D = Polyhedron(-obj.W.A*phixu, obj.W.b - obj.W.A*(xp - obj.AB0*[x;u]));
-            
-            % Compute intersection
-            if D.isBounded() %&& obj.Omega.intersect(D)
+            while(~endwhile)
+                % Compute non falsified set
+                D = Polyhedron(-obj.W.A*phixu, obj.W.b - obj.W.A*(xp - obj.AB0*[x;u]));
+                
+                % Compute intersection
+                %             if D.isBounded() %&& obj.Omega.intersect(D)
                 Omega = obj.Omega.intersect(D);
                 
                 obj.Omega = Omega.minHRep;
-            else
-                Omega = obj.Omega;
+                %             else
+                %                 Omega = obj.Omega;
+                %             end
+                
+                if (~D.isBounded)||(w==1e-05)       % Stop loop if set is unbounded or minimal w is reached
+                    endwhile=1;
+                else
+                    if obj.Omega.isEmptySet
+                        obj.Omega = obj.Omega_previous;     % Set Omega back to previous value
+                        
+                        w = w/0.99;                   % increase uncertainty w if intersection is empty set
+                        Hw = [eye(obj.nx); -eye(obj.nx)];
+                        hw = w * ones(2*obj.nx, 1);
+                        obj.W = Polyhedron(Hw, hw);
+                        
+                    elseif obj.Omega == obj.Omega_previous
+                        w = max(1e-5, w*0.99);         % decrease uncertainty if Omega didn't change
+                        Hw = [eye(obj.nx); -eye(obj.nx)];
+                        hw = w * ones(2*obj.nx, 1);
+                        obj.W = Polyhedron(Hw, hw);
+                    else
+                        endwhile=1;
+                    end
+                end
             end
+            
+            
+
             % Point Estimate (center of bounding box)
             aux = Omega.outerApprox;
             bounds_mat = aux.A.*aux.b;
             obj.theta_hat = sum(bounds_mat)'/2;
             obj.theta_bounds = nonzeros(bounds_mat);
+                       
         end
         
         function phixu = get_phixu(obj,x,u)
