@@ -130,10 +130,10 @@ disc_uncert = max((df_lin_ns-df_disc_ns),[],1);
 
 %% Initial guess for dynamics: XFLR model
 JA = logical([ 
-    0 1 0 0; 
-    0 0 0 0; 
-    0 0 1 0; 
-    0 0 0 0]);
+    1 1 1 1; 
+    1 1 1 1; 
+    1 1 1 0; 
+    0 0 1 0]);
 JB = logical([ 
     0; 
     0; 
@@ -187,13 +187,14 @@ hw = w_max * ones(2*nx, 1);
 W = Polyhedron(Hw, hw); 
 
 % instantiate set membership estimator
-sm = SetMembership(Omega{1}, W, ABi, AB0, w_max, nx);
+sm = SetMembership(Omega{1}, W, ABi, AB0, w_max);
 
 % Get Set Membership estimation
 nSteps = nData; 
+nSteps = 100; 
 % Select nSteps samples from dataset, either randomly or equally distributed
 %dataIdx = randperm(nData);          % Random selection from dataset
-%dataIdx = 1:floor(nData/nSteps):nData; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
+%dataIdx = 1:floor(nSteps/nSteps):nSteps; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
 dataIdx = 1:1:nSteps; % first nSteps points from dataset
 
 dTheta_hat = zeros(nSteps, np); % estimated values
@@ -205,6 +206,7 @@ figure;
 iPlot = 1;
 stepIdx = 1:nSteps;
 for iStep = stepIdx
+    fprintf(['\nStep ' num2str(iStep) '/' num2str(nSteps)]);
     id = dataIdx(iStep);
     du = df_u(id,1)' - u_trim;
     dx = df_lin_s(id,:)' - x_trim;
@@ -215,7 +217,7 @@ for iStep = stepIdx
     
     if (np == 2) %&& (iStep >= nSteps - 4) % Plot 2D set (if estimating only two parameters)
         if ~setD{iStep}.isBounded
-            fprintf(['Step ' num2str(iStep) ' not bounded.\n']);
+            fprintf([' - D not bounded.']);
             setD{iStep} = Polyhedron('A',setD{iStep}.A, 'b', setD{iStep}.b, 'lb', -1000*ones(2,1), 'ub', 1000*ones(2,1));
         end
         subplot(2,2,iPlot)
