@@ -1,8 +1,8 @@
 %% Wrapping up everything
 % Collect data from simulation
-% Initially we have a non-linear model for aircraft flight simulation, from 
-% which we can generate some data for random states and random actions. 
-% Let's consider states and actions around the x_trim point to generate 
+% Initially we have a non-linear model for aircraft flight simulation, from
+% which we can generate some data for random states and random actions.
+% Let's consider states and actions around the x_trim point to generate
 % this data.
 close all
 clear
@@ -117,32 +117,32 @@ disc_uncert = max((df_lin_ns-df_disc_ns),[],1);
 % end
 
 %% Set Membership Estimation for dimensional derivatives
-% I have used the model for xdot=A(x-x_trim)+B*(u-u_trim) as 
-% xdot=A*x + B*u plus noise to set the initial guess (remember that the 
-% result from m.s. identification is Ax+Bu). This initial guess can be 
-% changed with Waibel's XFLR. I have expanded the membership estimation so 
-% all values in the A and B matrices can be considered uncertain if its 
-% index is in the J set, so adapt to another models can be made easily. 
-% This J set to indicate indexes where is uncertainty, has to be though as 
-% the A and B matrices were merged into one matrix and then flatten, it 
-% follows the numeration used by Tilman previously in h_theta but 
+% I have used the model for xdot=A(x-x_trim)+B*(u-u_trim) as
+% xdot=A*x + B*u plus noise to set the initial guess (remember that the
+% result from m.s. identification is Ax+Bu). This initial guess can be
+% changed with Waibel's XFLR. I have expanded the membership estimation so
+% all values in the A and B matrices can be considered uncertain if its
+% index is in the J set, so adapt to another models can be made easily.
+% This J set to indicate indexes where is uncertainty, has to be though as
+% the A and B matrices were merged into one matrix and then flatten, it
+% follows the numeration used by Tilman previously in h_theta but
 % generalizes for different elements in A and B with uncertainty.
 
 %% Initial guess for dynamics: XFLR model
-JA = logical([ 
-    1 1 1 1; 
-    1 1 1 1; 
-    1 1 1 0; 
+JA = logical([
+    1 1 1 1;
+    1 1 1 1;
+    1 1 1 0;
     0 0 1 0]);
-JB = logical([ 
-    0; 
-    0; 
-    0; 
+JB = logical([
+    0;
+    0;
+    0;
     0]);
 J = [JA JB];
-idxJ = find(J);   
+idxJ = find(J);
 
-% Initial guess for dynamics: XFLR model - but only uncertain values chosen in JA and JB 
+% Initial guess for dynamics: XFLR model - but only uncertain values chosen in JA and JB
 init_model = mdls.uw;
 init_model.sys.A(JA(:)) = mdls.xflr_uw.sys.A(JA(:));
 init_model.sys.B(JB(:)) = mdls.xflr_uw.sys.B(JB(:));
@@ -177,21 +177,10 @@ theta_uncert = 50.0;
 Ac0Bc0 = [Ac0, Bc0];
 h_theta = repmat(theta_uncert * abs(Ac0Bc0(idxJ)), 2, 1);
 
-% define initial parameter set
-Omega{1} = Polyhedron(H_theta, h_theta);
-
-% Define additive polytopic uncertainty description
-w_max = 0.08; %0.041; 
-Hw = [eye(nx); -eye(nx)];
-hw = w_max * ones(2*nx, 1);
-W = Polyhedron(Hw, hw); 
-
-% instantiate set membership estimator
-sm = SetMembership(Omega{1}, W, ABi, AB0, w_max);
 
 % Get Set Membership estimation
-nSteps = nData; 
-nSteps = 100; 
+nSteps = nData;
+nSteps = 100;
 % Select nSteps samples from dataset, either randomly or equally distributed
 %dataIdx = randperm(nData);          % Random selection from dataset
 %dataIdx = 1:floor(nSteps/nSteps):nSteps; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
@@ -200,42 +189,97 @@ dataIdx = 1:1:nSteps; % first nSteps points from dataset
 dTheta_hat = zeros(nSteps, np); % estimated values
 dTheta_bounds = zeros(nSteps, 2*np);
 setD = cell(1, nSteps);
-figure;
+figure(1); clf;
+   
+% Define additive polytopic uncertainty description
+w_max = 0.8; %0.041;
+Hw = [eye(nx); -eye(nx)];
 
-% Use nSteps samples for set membership identification
-iPlot = 1;
-stepIdx = 1:nSteps;
-for iStep = stepIdx
-    fprintf(['\nStep ' num2str(iStep) '/' num2str(nSteps)]);
-    id = dataIdx(iStep);
-    du = df_u(id,1)' - u_trim;
-    dx = df_lin_s(id,:)' - x_trim;
-    dxp = df_lin_ns(id,:)' - x_trim;
-    [Omega{iStep+1}, setD{iStep}] = sm.update(dxp, dx, du);    % update set membership
-    dTheta_hat(iStep,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
-    dTheta_bounds(iStep,:) = sm.theta_bounds';
+f1 = figure; iterations = 0; w_maxes = [];
+clear dTheta_final_bounds_last
+%%
+term_crit = 10; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
+
+while (true)    
+    fprintf(['\nStarting SM estimation with w_max = ' num2str(w_max)]);
     
-    if (np == 2) %&& (iStep >= nSteps - 4) % Plot 2D set (if estimating only two parameters)
-        if ~setD{iStep}.isBounded
-            fprintf([' - D not bounded.']);
-            setD{iStep} = Polyhedron('A',setD{iStep}.A, 'b', setD{iStep}.b, 'lb', -1000*ones(2,1), 'ub', 1000*ones(2,1));
+    w_maxes = [w_maxes w_max];
+    if length(w_maxes)-1 > iterations(end), iterations = [iterations iterations(end)+1]; end
+    set(0, 'currentfigure', f1);
+    plot(iterations, w_maxes, '.-k', 'MarkerSize', 12), title('w\_{max}'), xlabel('it'), xticks(iterations), grid on,  drawnow
+    % define initial parameter set
+    Omega{1} = Polyhedron(H_theta, h_theta);
+    hw = w_max * ones(2*nx, 1);
+    W = Polyhedron(Hw, hw);
+    % instantiate set membership estimator
+    sm = SetMembership(Omega{1}, W, ABi, AB0);
+    
+    % Use nSteps samples for set membership identification
+    iPlot = 1;
+    stepIdx = 1:nSteps;
+    for iStep = stepIdx
+        id = dataIdx(iStep);
+        du = df_u(id,1)' - u_trim;
+        dx = df_lin_s(id,:)' - x_trim;
+        dxp = df_lin_ns(id,:)' - x_trim;
+        [Omega{iStep+1}, setD{iStep}] = sm.update(dxp, dx, du);    % update set membership
+        
+        if ~Omega{iStep+1}.isBounded
+            % Restart estimation with larger W
+            w_max = 1.1 * w_max;
+            hw = w_max * ones(2*nx, 1);
+            fprintf([' -- Step ' num2str(iStep) '/' num2str(nSteps) ' - Empty set, enlarge disturbance set W.']);
+            break;
         end
-        subplot(2,2,iPlot)
-        hold off
-        plot(setD{iStep},'color','b','alpha',0.1)   % Unfalsified set from this measurement
-        hold on
-        plot(Omega{iStep},'alpha',0.1)              % Present param set
-        plot(Omega{iStep+1})                        % Intersection
-        title(['k=', int2str(iStep)])
-        iPlot = iPlot + 1;
-        if iPlot > 4, iPlot = 1; end
+        
+        dTheta_hat(iStep,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
+        dTheta_bounds(iStep,:) = sm.theta_bounds';
+        
+        if (np == 2) %&& (iStep >= nSteps - 4) % Plot 2D set (if estimating only two parameters)
+            if ~setD{iStep}.isBounded
+                fprintf([' - D not bounded.']);
+                setD{iStep} = Polyhedron('A',setD{iStep}.A, 'b', setD{iStep}.b, 'lb', -1000*ones(2,1), 'ub', 1000*ones(2,1));
+            end
+            subplot(2,2,iPlot)
+            hold off
+            plot(setD{iStep},'color','b','alpha',0.1)   % Unfalsified set from this measurement
+            hold on
+            plot(Omega{iStep},'alpha',0.1)              % Present param set
+            plot(Omega{iStep+1})                        % Intersection
+            title(['k=', int2str(iStep)])
+            iPlot = iPlot + 1;
+            if iPlot > 4, iPlot = 1; end
+        end
     end
-end, clear id du dx dxp iStep
+    if iStep == nSteps
+        % Estimation has completed through all samples
+        w_max = 0.9 * w_max;
+        hw = w_max * ones(2*nx, 1);
+        
+        if exist('dTheta_final_bounds_last', 'var')
+            dTheta_final_bounds_size = abs(diff(reshape(dTheta_bounds(end,:), 2, 12)));
+            dTheta_final_bounds_last_size = abs(diff(reshape(dTheta_final_bounds_last, 2, 12)));
+            
+            dTheta_final_bounds_size_diff  = dTheta_final_bounds_last_size - dTheta_final_bounds_size;
+            if all(dTheta_final_bounds_size_diff < term_crit)
+                % Improvement w.r.t. last cmoplete estimation is
+                % sufficiently small, terminate        
+                fprintf(['\n ==== \nEstimation complete with termination criterion ' num2str(term_crit) ', w_max = ' num2str(W.b(1)) '.' ...
+                    '\nFor more accurate estimation, decrease term_crit and run section again.\n\n']);
+                clear id du dx dxp iStep
+                break
+            end
+        end
+        fprintf(['\nAll samples used. Tighten disturbance set W.\n ----']);
+        dTheta_final_bounds_last = dTheta_bounds(end,:);
+    end
+end
+clear dTheta_final_bounds_last
 %Omega_end = Omega{nSteps+1}; %figure, plot(Omega_end) % plot final parameter set
 
 % Set-Membership estimated system
 dTheta_hat_end = dTheta_hat(end,:)';
-AB_vec = vec(AB0); 
+AB_vec = vec(AB0);
 AB_vec(idxJ) = AB_vec(idxJ) + dt * dTheta_hat_end;
 AB_ms = reshape(AB_vec, size(AB0)); clear AB_vec dTheta_hat_end
 
@@ -247,23 +291,23 @@ AB_true = [A_true B_true]
 
 % Plot delta and absolute parameter values
 for iP = 1:np
-   figure
-   subplot(1,2,1) % Delta parameter estimation
-   hold on;
-   patch([stepIdx'; flipud(stepIdx')], [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
-   plot(1:nSteps, dTheta_hat(:,iP), 'b');
-   ylim([mean(dTheta_bounds(:,2*iP)), mean(dTheta_bounds(:,2*iP-1))])
-   title(['Param ' num2str(iP) ' dTheta hat'])
-   
-   subplot(1,2,2) % Parameter estimation 
-   hold on
-   % True value (linearized dynamics) dashed line
-   plot(stepIdx, repmat(AB_true(idxJ(iP)), nSteps), 'k--');
-   % Estimation history
-   patch([stepIdx'; flipud(stepIdx')], AB0(idxJ(iP)) + dt * [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
-   plot(stepIdx, AB0(idxJ(iP)) + dt * dTheta_hat(:,iP), 'b');
-   ylim(AB0(idxJ(iP)) + dt * [mean(dTheta_bounds(:,2*iP)), mean(dTheta_bounds(:,2*iP-1))])
-   title(['Param ' num2str(iP) ' value'])
+    figure(iP+10)
+    subplot(1,2,1) % Delta parameter estimation
+    hold on;
+    patch([stepIdx'; flipud(stepIdx')], [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
+    plot(1:nSteps, dTheta_hat(:,iP), 'b');
+    ylim([mean(dTheta_bounds(:,2*iP)), mean(dTheta_bounds(:,2*iP-1))])
+    title(['Param ' num2str(iP) ' dTheta hat'])
+    
+    subplot(1,2,2) % Parameter estimation
+    hold on
+    % True value (linearized dynamics) dashed line
+    plot(stepIdx, repmat(AB_true(idxJ(iP)), nSteps), 'k--');
+    % Estimation history
+    patch([stepIdx'; flipud(stepIdx')], AB0(idxJ(iP)) + dt * [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
+    plot(stepIdx, AB0(idxJ(iP)) + dt * dTheta_hat(:,iP), 'b');
+    ylim(AB0(idxJ(iP)) + dt * [mean(dTheta_bounds(:,2*iP)), mean(dTheta_bounds(:,2*iP-1))])
+    title(['Param ' num2str(iP) ' value'])
 end
 
 disp('Indices changed in A and B:')

@@ -122,8 +122,7 @@ classdef SimulatorClass < handle
                 Xlde = obj.linde_state_traj;
             end
             
-            figure(1);
-            clf(1);
+            figure;
             for ix=1:obj.nx
                 subplot(obj.nx, 1, ix);
                 plot(T, X(ix,:), T, Xl(ix,:), T, Xld(ix,:), '.', T, Xlde(ix,:), '.');

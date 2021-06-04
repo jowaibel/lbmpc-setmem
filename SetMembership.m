@@ -9,12 +9,10 @@ classdef SetMembership < handle
         np
         AB0
         ABi
-        Omega_previous
-        w_ini
     end
     
     methods
-        function obj = SetMembership(Omega,W, ABi, AB0, w_ini)
+        function obj = SetMembership(Omega,W, ABi, AB0)
             obj.Omega = Omega;
             obj.W = W;
             obj.ABi = ABi;
@@ -23,50 +21,18 @@ classdef SetMembership < handle
             obj.np = size(obj.ABi,3);
             aux = obj.Omega.outerApprox;
             obj.theta_hat = sum(aux.A.*aux.b)'/2;
-            obj.w_ini = w_ini;
         end
         
-        function [Omega, D] = update(obj,xp,x,u)
-            obj.Omega_previous = obj.Omega;
-            w = obj.w_ini;
-            
+        function [Omega, D] = update(obj,xp,x,u)            
             phixu = obj.get_phixu(x,u);
             
-            fprintf([' - It']);
-            it = 0;
-            while (true)
-                it = it + 1;
-                fprintf([' ' num2str(it)]);
-                
-                % Compute non falsified set
-                D = Polyhedron(-obj.W.A*phixu, obj.W.b - obj.W.A*(xp - obj.AB0*[x;u]));
-                
-                % Compute intersection
-                Omega = obj.Omega.intersect(D);
-                
-                if (~D.isBounded) || ( w <= 1e-05)       % Stop loop if set is unbounded or minimal w is reached
-                    break
-                else
-                    if Omega.isEmptySet
-                        Omega = obj.Omega_previous;     % Set Omega back to previous value
-                        
-                        w = w/0.99;                   % increase uncertainty w if intersection is empty set
-                        Hw = [eye(obj.nx); -eye(obj.nx)];
-                        hw = w * ones(2*obj.nx, 1);
-                        obj.W = Polyhedron(Hw, hw);
-                        
-                    elseif Omega == obj.Omega_previous
-                        w = max(1e-5, w*0.99);         % decrease uncertainty if Omega didn't change
-                        Hw = [eye(obj.nx); -eye(obj.nx)];
-                        hw = w * ones(2*obj.nx, 1);
-                        obj.W = Polyhedron(Hw, hw);
-                    else
-                        break
-                    end
-                end
-            end
+            % Compute non falsified set
+            D = Polyhedron(-obj.W.A*phixu, obj.W.b - obj.W.A*(xp - obj.AB0*[x;u]));
             
+            % Compute intersection
+            Omega = obj.Omega.intersect(D);
             obj.Omega = Omega.minHRep;
+            
             % Point Estimate (center of bounding box)
             aux = Omega.outerApprox;
             bounds_mat = aux.A.*aux.b;
