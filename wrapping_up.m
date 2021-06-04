@@ -228,7 +228,7 @@ while (true)
             % Restart estimation with larger W
             w_max = 1.1 * w_max;
             hw = w_max * ones(2*nx, 1);
-            fprintf([' -- Step ' num2str(iStep) '/' num2str(nSteps) ' - Empty set, enlarge disturbance set W.']);
+            fprintf([' -- Step ' num2str(iStep) '/' num2str(nSteps) ': Empty set, enlarge disturbance set W.']);
             break;
         end
         
