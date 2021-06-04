@@ -291,7 +291,7 @@ AB_true = [A_true B_true]
 
 % Plot delta and absolute parameter values
 for iP = 1:np
-    figure(iP+10)
+    figure(iP+10), clf;
     subplot(1,2,1) % Delta parameter estimation
     hold on;
     patch([stepIdx'; flipud(stepIdx')], [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
