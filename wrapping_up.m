@@ -192,7 +192,6 @@ stepIdx = 0:nSteps;
 dTheta_hat = zeros(nSteps+1, np); % estimated values
 dTheta_bounds = zeros(nSteps+1, 2*np);
 setD = cell(1, nSteps+1);
-figure(1); clf;
 
 % Define additive polytopic uncertainty description
 w_max = 0.2; %0.041;
@@ -202,12 +201,12 @@ f1 = figure; iterations = 0; w_maxes = [];
 clear dTheta_final_bounds_last
 %%
 recursive_estimation = true;
-term_crit = 0.1; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
+term_crit = 10; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
         
 if exist('dTheta_final_bounds_last', 'var'), fprintf('Warmstarting'); end
 
 while (true)
-    fprintf(['\nStarting SM estimation with w_max = ' num2str(w_max)]);
+    fprintf(['\nStarting SM estimation with w_max = ' num2str(w_max)]); tic;
     
     w_maxes = [w_maxes w_max];
     if length(w_maxes)-1 > iterations(end), iterations = [iterations iterations(end)+1]; end
@@ -224,7 +223,6 @@ while (true)
     sm = SetMembership(Omega{1}, W, ABi, AB0);
     
     if recursive_estimation
-        tic;
         % Estimate recursively, sample by sample
         
         % Use nSteps samples for set membership identification
@@ -265,7 +263,6 @@ while (true)
         end
     else
         % Estimate from all samples in one step
-        tic;
         
         DU = df_u(dataIdx,1)' - u_trim;
         DX = df_lin_s(dataIdx,:)' - x_trim;
@@ -310,7 +307,7 @@ while (true)
                 break
             end
         end
-        fprintf(['\nAll samples used. (' num2str(round(toc,1)) 's) Tighten disturbance set W.\n ----']);
+        fprintf(['\nAll samples used (' num2str(round(toc,1)) 's). Tighten disturbance set W.\n ----']);
         dTheta_final_bounds_last = dTheta_bounds(end,:);
     end
 end
