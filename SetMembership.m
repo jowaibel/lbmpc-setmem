@@ -23,11 +23,37 @@ classdef SetMembership < handle
             obj.theta_hat = sum(aux.A.*aux.b)'/2;
         end
         
-        function [Omega, D] = update(obj,xp,x,u)            
+        function [Omega, D] = update(obj,xp,x,u)
             phixu = obj.get_phixu(x,u);
             
             % Compute non falsified set
-            D = Polyhedron(-obj.W.A*phixu, obj.W.b - obj.W.A*(xp - obj.AB0*[x;u]));
+            HD = -obj.W.A * phixu;
+            hD = obj.W.b - obj.W.A * (xp - obj.AB0*[x;u]);
+            D = Polyhedron(HD, hD);
+            
+            % Compute intersection
+            Omega = obj.Omega.intersect(D);
+            obj.Omega = Omega.minHRep;
+            
+            % Point Estimate (center of bounding box)
+            aux = Omega.outerApprox;
+            bounds_mat = aux.A.*aux.b;
+            obj.theta_hat = sum(bounds_mat, 1)'/2;
+            obj.theta_bounds = nonzeros(bounds_mat);
+            if isempty(obj.theta_bounds)
+                obj.theta_bounds = zeros(2*obj.np,1);
+            end
+        end
+        
+        function [Omega] = update_all(obj,XP,X,U)
+            phixu = obj.get_phixu(X,U);
+            
+            N = size(X, 2); % N samples
+            
+            % Compute non falsified set
+            Hd = repmat(-obj.W.A, N, N) * phixu;
+            hd = vec( obj.W.b - obj.W.A * (XP - obj.AB0*[X;U]) );
+            D = Polyhedron(Hd, hd);
             
             % Compute intersection
             Omega = obj.Omega.intersect(D);
@@ -41,10 +67,10 @@ classdef SetMembership < handle
         end
         
         function phixu = get_phixu(obj,x,u)
-            phixu = [];
             % define phi(x,u) = [[A_1, B_1][x;u],... ]
+            phixu = [];
             for i=1:obj.np
-                phixu = [phixu, squeeze(obj.ABi(:,:,i))*[x;u]];
+                phixu = [phixu, vec(squeeze(obj.ABi(:,:,i)) * [x; u])];
             end
         end
         
