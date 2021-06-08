@@ -200,8 +200,8 @@ Hw = [eye(nx); -eye(nx)];
 f1 = figure; iterations = 0; w_maxes = [];
 clear dTheta_final_bounds_last
 %%
-recursive_estimation = true;
-term_crit = 5; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
+recursive_estimation = false;
+term_crit = 1; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
         
 if exist('dTheta_final_bounds_last', 'var'), fprintf('Warmstarting'); end
 
@@ -272,14 +272,16 @@ while (true)
             w_max = 1.1 * w_max;
             hw = w_max * ones(2*nx, 1);
             fprintf('\nAll samples used. Empty set, enlarge disturbance set W.');
-            break;
-        end
-        dTheta_hat(nSteps+1,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
-        dTheta_hat(:,:) = interp1([1 2],[dTheta_hat(1,:);dTheta_hat(end,:)], linspace(1,2,nSteps+1));
+            
+            iStep=0;
+        else
+            dTheta_hat(nSteps+1,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
+            dTheta_hat(:,:) = interp1([1 2],[dTheta_hat(1,:);dTheta_hat(end,:)], linspace(1,2,nSteps+1));
 
-        dTheta_bounds(nSteps+1,:) = sm.theta_bounds';
-        dTheta_bounds(:,:) = interp1([1 2],[dTheta_bounds(1,:);dTheta_bounds(end,:)], linspace(1,2,nSteps+1));
-        iStep = nSteps;
+            dTheta_bounds(nSteps+1,:) = sm.theta_bounds';
+            dTheta_bounds(:,:) = interp1([1 2],[dTheta_bounds(1,:);dTheta_bounds(end,:)], linspace(1,2,nSteps+1));
+            iStep = nSteps;
+        end
     end
     
     if iStep == nSteps
