@@ -194,14 +194,14 @@ dTheta_bounds = zeros(nSteps+1, 2*np);
 setD = cell(1, nSteps+1);
 
 % Define additive polytopic uncertainty description
-w_max = 0.2; %0.041;
+w_max = 0.1; %0.041;
 Hw = [eye(nx); -eye(nx)];
 
 f1 = figure; iterations = 0; w_maxes = [];
 clear dTheta_final_bounds_last
 %%
 recursive_estimation = true;
-term_crit = 10; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
+term_crit = 5; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
         
 if exist('dTheta_final_bounds_last', 'var'), fprintf('Warmstarting'); end
 
@@ -263,7 +263,6 @@ while (true)
         end
     else
         % Estimate from all samples in one step
-        
         DU = df_u(dataIdx,1)' - u_trim;
         DX = df_lin_s(dataIdx,:)' - x_trim;
         DXP = df_lin_ns(dataIdx,:)' - x_trim;

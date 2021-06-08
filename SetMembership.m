@@ -51,7 +51,7 @@ classdef SetMembership < handle
             N = size(X, 2); % N samples
             
             % Compute non falsified set
-            Hd = repmat(-obj.W.A, N, N) * phixu;
+            Hd = kron(eye(N), -obj.W.A) * phixu;
             hd = vec( obj.W.b - obj.W.A * (XP - obj.AB0*[X;U]) );
             D = Polyhedron(Hd, hd);
             
