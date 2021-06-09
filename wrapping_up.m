@@ -264,14 +264,15 @@ while (true)
                 modify_W_str = 'enlarge';
             end
             fprintf(['\nAll samples used. Empty set, ' modify_W_str ' disturbance set W.']);
-            break;
-        end
-        dTheta_hat(nSteps+1,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
-        dTheta_hat(:,:) = interp1([1 2],[dTheta_hat(1,:);dTheta_hat(end,:)], linspace(1,2,nSteps+1));
+        else
+           
+            dTheta_hat(nSteps+1,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
+            dTheta_hat(:,:) = interp1([1 2],[dTheta_hat(1,:);dTheta_hat(end,:)], linspace(1,2,nSteps+1));
 
-        dTheta_bounds(nSteps+1,:) = sm.theta_bounds';
-        dTheta_bounds(:,:) = interp1([1 2],[dTheta_bounds(1,:);dTheta_bounds(end,:)], linspace(1,2,nSteps+1));
-        iStep = nSteps;
+            dTheta_bounds(nSteps+1,:) = sm.theta_bounds';
+            dTheta_bounds(:,:) = interp1([1 2],[dTheta_bounds(1,:);dTheta_bounds(end,:)], linspace(1,2,nSteps+1));
+            iStep = nSteps;
+        end
     end
     
     if iStep == nSteps
