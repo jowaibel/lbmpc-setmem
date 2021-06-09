@@ -67,10 +67,6 @@ df_ns = sim.state_traj(:,2:end)';
 df_lin_s = sim.lin_state_traj(:,1:end-1)';
 df_lin_ns = sim.lin_state_traj(:,2:end)';
 
-%obtain linearized approximation of next states (Using A(x-x_trim)+B(u-u_trim))
-%df_lin_ns = df_s(:,1:4) + dt * (Ac(:,:)*(df_s(:,1:4)-repmat(x_trim',nSteps,1))'+Bc(:,:)*(df_u(:,1)-repmat(u_trim(1)',nSteps,1))')';
-
-
 % Check discretization uncertainty
 A_true = sim.Ad; % Discretization from truncated Talor series (Euler discretization)
 B_true = sim.Bd;
@@ -94,40 +90,6 @@ nData = size(df_s, 1);
 df_disc_ns = repmat(x_trim',nData,1) + (A_true*(df_lin_s(:,1:4)-repmat(x_trim',nData,1))' + B_true*(df_u(:,1)-repmat(u_trim(1)',nData,1))')';
 disc_uncert = max((df_lin_ns-df_disc_ns),[],1);
 
-%%
-% figure
-% sgtitle("Nextstate v/s state, Linearized model (red) and data (blue)")
-% for var = 1:4
-%     subplot(2,2,var)
-%     plot(df_s(:,var),df_ns(:,var), 'bp', 'MarkerSize', 1) %state against next state
-%     hold on
-%     plot(df_s(:,var),df_lin_ns(:,var), 'rp', 'MarkerSize', 1)
-%     xlim([min(df_s(:,var)), max(df_s(:,var))]);
-%     ylim([min(df_ns(:,var)),max(df_ns(:,var))]);
-%     xlabel(mdl.sys.StateName{var});
-% end
-% figure
-% sgtitle("Nextstate(data) - Nextstate(linearized model)")
-% for var = 1:4
-%     subplot(2,2,var)
-%     plot(df_s(:,var),df_ns(:,var)-df_lin_ns(:,var), 'p', 'MarkerSize', 1)
-%     xlim([min(df_s(:,var)),max(df_s(:,var))]);
-%     ylim([min(df_ns(:,var)-df_lin_ns(:,var)),max(df_ns(:,var)-df_lin_ns(:,var))]);
-%     xlabel(mdl.sys.StateName{var});
-% end
-
-%% Set Membership Estimation for dimensional derivatives
-% I have used the model for xdot=A(x-x_trim)+B*(u-u_trim) as
-% xdot=A*x + B*u plus noise to set the initial guess (remember that the
-% result from m.s. identification is Ax+Bu). This initial guess can be
-% changed with Waibel's XFLR. I have expanded the membership estimation so
-% all values in the A and B matrices can be considered uncertain if its
-% index is in the J set, so adapt to another models can be made easily.
-% This J set to indicate indexes where is uncertainty, has to be though as
-% the A and B matrices were merged into one matrix and then flatten, it
-% follows the numeration used by Tilman previously in h_theta but
-% generalizes for different elements in A and B with uncertainty.
-
 %% Initial guess for dynamics: XFLR model
 JA = logical([
     1 1 1 1;
@@ -137,7 +99,7 @@ JA = logical([
 JB = logical([
     0;
     0;
-    0;
+    1;
     0]);
 J = [JA JB];
 idxJ = find(J);
@@ -173,10 +135,15 @@ end, clear ABi_
 
 % Bounds on delta parameters
 H_theta=[eye(np); -eye(np)];
-theta_uncert = 50.0;
-Ac0Bc0 = [Ac0, Bc0];
-h_theta = repmat(theta_uncert * abs(Ac0Bc0(idxJ)), 2, 1);
-
+theta_rel_uncert = 1.0;
+% Ac0Bc0 = [Ac0, Bc0];
+% Ac0Bc0_pos = Ac0Bc0; Ac0Bc0_pos(Ac0Bc0 < 0) = 0;                % ### Asymmetric uncertainty
+% Ac0Bc0_neg = Ac0Bc0; Ac0Bc0_neg(Ac0Bc0 > 0) = 0;                % ### Asymmetric uncertainty
+% h_theta = theta_uncert * [Ac0Bc0_pos(idxJ); -Ac0Bc0_neg(idxJ)]; % ### Asymmetric uncertainty
+AB0_pos = AB0; AB0_pos(AB0 < 0) = 0;                % ### Asymmetric uncertainty (Discrete system)
+AB0_neg = AB0; AB0_neg(AB0 > 0) = 0;                % ### Asymmetric uncertainty
+h_theta = ( [-AB0_neg(idxJ); AB0_pos(idxJ)] + theta_rel_uncert * [AB0_pos(idxJ); -AB0_neg(idxJ)] ) ./ dt; % ### Bounds to avoid sign flip + uncertainty range in same sign
+% h_theta = repmat(theta_uncert * abs(Ac0Bc0(idxJ)), 2, 1); % ### Symmetric uncertainty
 
 % Get Set Membership estimation
 nSteps = nData;
@@ -189,39 +156,60 @@ dataIdx = 1:1:nSteps; % first nSteps points from dataset
 nSteps = length(dataIdx);
 stepIdx = 0:nSteps;
 
+% Select data for estimation
+DU = df_u(dataIdx, :)' - u_trim;        % control dataset
+DX = df_lin_s(dataIdx, :)' - x_trim;    % linearized model, state dataset
+DXP = df_lin_ns(dataIdx, :)' - x_trim;  % linearized model, next state dataset
+
+AB_ms = AB0;
 dTheta_hat = zeros(nSteps+1, np); % estimated values
 dTheta_bounds = zeros(nSteps+1, 2*np);
 setD = cell(1, nSteps+1);
 
 % Define additive polytopic uncertainty description
-w_max = 0.1; %0.041;
+DW = DXP - AB_ms * [DX; DU];
+w_max = max(abs(DW), [], 2);
+%w_max = 0.1 * ones(nx, 1); %0.041;
 Hw = [eye(nx); -eye(nx)];
 
 f1 = figure; iterations = 0; w_maxes = [];
 clear dTheta_final_bounds_last
+
 %%
-recursive_estimation = true;
-term_crit = 5; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
+recursive_estimation = false;
+estimate_based_W = false;
+
+term_crit = 10; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
         
 if exist('dTheta_final_bounds_last', 'var'), fprintf('Warmstarting'); end
 
 while (true)
-    fprintf(['\nStarting SM estimation with w_max = ' num2str(w_max)]); tic;
-    
-    w_maxes = [w_maxes w_max];
-    if length(w_maxes)-1 > iterations(end), iterations = [iterations iterations(end)+1]; end
-    set(0, 'currentfigure', f1);
-    plot(iterations, w_maxes, '.-k', 'MarkerSize', 12), title('w\_{max}'), xlabel('it'), xticks(iterations), grid on,  drawnow
-    
     % define initial parameter set
     Omega{1} = Polyhedron(H_theta, h_theta);
-    dTheta_bounds(1,:) = nonzeros(H_theta .* h_theta);
+    Hh_theta = H_theta .* h_theta;
+    dTheta_bounds(1,:) = Hh_theta(logical(repmat(eye(np),2,1))); clear Hh_theta
     
-    hw = w_max * ones(2*nx, 1);
+    % Define disturbance bounds
+    if estimate_based_W
+        DW = DXP - AB_ms * [DX; DU];
+        w_max = max(abs(DW), [], 2);
+    end
+    hw = repmat(w_max, 2, 1);
     W = Polyhedron(Hw, hw);
-    % instantiate set membership estimator
+    
+    % Instantiate set membership estimator
     sm = SetMembership(Omega{1}, W, ABi, AB0);
     
+    % Keep track of w_max evolution
+    w_maxes = [w_maxes w_max]; 
+    if size(w_maxes,2)-1 > iterations(end), iterations = [iterations iterations(end)+1]; end
+    set(0, 'currentfigure', f1);
+    subplot(length(w_max), 1, 1); plot(iterations, w_maxes(1,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(iterations), grid on, title('w\_{max}')
+    subplot(length(w_max), 1, 2); plot(iterations, w_maxes(2,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(iterations), grid on
+    subplot(length(w_max), 1, 3); plot(iterations, w_maxes(3,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(iterations), grid on
+    subplot(length(w_max), 1, 4); plot(iterations, w_maxes(4,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(iterations), grid on, drawnow
+
+    fprintf(['\nStarting SM estimation with w_max = ' num2str(w_max')]); tic;    
     if recursive_estimation
         % Estimate recursively, sample by sample
         
@@ -229,16 +217,18 @@ while (true)
         iPlot = 1;
         for iStep = stepIdx(2:end)
             id = dataIdx(iStep);
-            du = df_u(id,1)' - u_trim;
-            dx = df_lin_s(id,:)' - x_trim;
-            dxp = df_lin_ns(id,:)' - x_trim;
-            [Omega{iStep+1}, setD{iStep+1}] = sm.update(dxp, dx, du);    % update set membership
+            [Omega{iStep+1}, setD{iStep+1}] = sm.update(DXP(:,id), DX(:,id), DU(:,id));    % update set membership
             
             if Omega{iStep+1}.isEmptySet
-                % Restart estimation with larger W
-                w_max = 1.1 * w_max;
-                hw = w_max * ones(2*nx, 1);
-                fprintf([' -- Step ' num2str(iStep) '/' num2str(nSteps) ': Empty set, enlarge disturbance set W.']);
+                if estimate_based_W
+                    AB_ms = sm.get_AB(); % Save current AB estimate
+                    modify_W_str = 'iterate';
+                else
+                    % Restart estimation with larger W
+                    w_max = 1.1 * w_max;
+                    modify_W_str = 'enlarge';
+                end
+                fprintf([' -- Step ' num2str(iStep) '/' num2str(nSteps) ': Empty set, ' modify_W_str ' disturbance set W.']);
                 break;
             end
             
@@ -263,15 +253,17 @@ while (true)
         end
     else
         % Estimate from all samples in one step
-        DU = df_u(dataIdx,1)' - u_trim;
-        DX = df_lin_s(dataIdx,:)' - x_trim;
-        DXP = df_lin_ns(dataIdx,:)' - x_trim;
-        Omega{nSteps+1} = sm.update_all(DXP, DX, DU);
+        Omega{nSteps+1} = sm.update(DXP, DX, DU);
         if Omega{nSteps+1}.isEmptySet
-            % Restart estimation with larger W
-            w_max = 1.1 * w_max;
-            hw = w_max * ones(2*nx, 1);
-            fprintf('\nAll samples used. Empty set, enlarge disturbance set W.');
+            if estimate_based_W
+                AB_ms = sm.get_AB(); % Save current AB estimate
+                modify_W_str = 'iterate';
+            else
+                % Restart estimation with shrinked W
+                w_max = 1.1 * w_max;
+                modify_W_str = 'enlarge';
+            end
+            fprintf(['\nAll samples used. Empty set, ' modify_W_str ' disturbance set W.']);
             break;
         end
         dTheta_hat(nSteps+1,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
@@ -283,16 +275,20 @@ while (true)
     end
     
     if iStep == nSteps
-        % Estimation has completed through all samples
-        
-        % Compute new w_max, in case of having another loop (or warmstart)
-        w_max = 0.9 * w_max;
-        hw = w_max * ones(2*nx, 1);
+        AB_ms = sm.get_AB(); % Save current AB estimate
+        % Prepare restart of estimation with updated W (warmstart)
+        if estimate_based_W
+            modify_W_str = 'Iterate';
+        else
+            % Restart estimation with shrinked W
+            w_max = 0.9 * w_max;
+            modify_W_str = 'Tighten';
+        end
         
         if exist('dTheta_final_bounds_last', 'var')
             % Range between dTheta bounds
-            dTheta_final_bounds_size = abs(diff(reshape(dTheta_bounds(end,:), 2, 12)));
-            dTheta_final_bounds_last_size = abs(diff(reshape(dTheta_final_bounds_last, 2, 12)));
+            dTheta_final_bounds_size = abs(diff(reshape(dTheta_bounds(end,:), 2, np)));
+            dTheta_final_bounds_last_size = abs(diff(reshape(dTheta_final_bounds_last, 2, np)));
             
             % Change in that range w.r.t. to previous complete estimation
             dTheta_final_bounds_size_diff  = dTheta_final_bounds_last_size - dTheta_final_bounds_size;
@@ -306,20 +302,15 @@ while (true)
                 break
             end
         end
-        fprintf(['\nAll samples used (' num2str(round(toc,1)) 's). Tighten disturbance set W.\n ----']);
+        fprintf(['\nAll samples used (' num2str(round(toc,1)) 's). ' modify_W_str ' disturbance set W.\n ----']);
         dTheta_final_bounds_last = dTheta_bounds(end,:);
     end
 end
 %Omega_end = Omega{nSteps+1}; %figure, plot(Omega_end) % plot final parameter set
 
 % Set-Membership estimated system
-dTheta_hat_end = dTheta_hat(end,:)';
-AB_vec = vec(AB0);
-AB_vec(idxJ) = AB_vec(idxJ) + dt * dTheta_hat_end;
-AB_ms = reshape(AB_vec, size(AB0)); clear AB_vec dTheta_hat_end
-
+AB_ms
 A_ms = AB_ms(:,1:nx); B_ms = AB_ms(:,nx+1:nx+nu);
-AB_ms = [A_ms B_ms]
 
 % Output true system (discrete) for comparison
 AB_true = [A_true B_true]
