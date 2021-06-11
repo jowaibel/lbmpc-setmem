@@ -133,17 +133,48 @@ for iP = 1:np
     ABi(:,:,iP) = ABi_;
 end, clear ABi_
 
-% Bounds on delta parameters
 H_theta=[eye(np); -eye(np)];
-theta_rel_uncert = 1.0;
+
+% Bounds on delta parameters
+%theta_rel_uncert = 1.0;
 % Ac0Bc0 = [Ac0, Bc0];
 % Ac0Bc0_pos = Ac0Bc0; Ac0Bc0_pos(Ac0Bc0 < 0) = 0;                % ### Asymmetric uncertainty
 % Ac0Bc0_neg = Ac0Bc0; Ac0Bc0_neg(Ac0Bc0 > 0) = 0;                % ### Asymmetric uncertainty
 % h_theta = theta_uncert * [Ac0Bc0_pos(idxJ); -Ac0Bc0_neg(idxJ)]; % ### Asymmetric uncertainty
-AB0_pos = AB0; AB0_pos(AB0 < 0) = 0;                % ### Asymmetric uncertainty (Discrete system)
-AB0_neg = AB0; AB0_neg(AB0 > 0) = 0;                % ### Asymmetric uncertainty
-h_theta = ( [-AB0_neg(idxJ); AB0_pos(idxJ)] + theta_rel_uncert * [AB0_pos(idxJ); -AB0_neg(idxJ)] ) ./ dt; % ### Bounds to avoid sign flip + uncertainty range in same sign
+%AB0_pos = AB0; AB0_pos(AB0 < 0) = 0;                % ### Asymmetric uncertainty (Discrete system)
+%AB0_neg = AB0; AB0_neg(AB0 > 0) = 0;                % ### Asymmetric uncertainty
+%h_theta = ( [-AB0_neg(idxJ); AB0_pos(idxJ)] + theta_rel_uncert * [AB0_pos(idxJ); -AB0_neg(idxJ)] ) ./ dt; % ### Bounds to avoid sign flip + uncertainty range in same sign
 % h_theta = repmat(theta_uncert * abs(Ac0Bc0(idxJ)), 2, 1); % ### Symmetric uncertainty
+
+
+% first option:
+theta_uncert = 1.0/dt;
+AB0_parms=AB0(idxJ);
+AB_true = [A_true B_true];
+h_theta_upper=theta_uncert * ones(size(idxJ));
+h_theta_lower=theta_uncert * ones(size(idxJ));
+h_theta_upper(AB0_parms<0)=-AB0_parms(AB0_parms<0)/dt;
+h_theta_lower(AB0_parms<0)=-AB0_parms(AB0_parms<0)/dt;
+
+h_theta_lower(AB0_parms>0)=AB0_parms(AB0_parms>0)/dt;
+h_theta_upper(AB0_parms>0)=AB0_parms(AB0_parms>0)/dt;
+h_theta=[h_theta_upper;h_theta_lower];
+header = {'lower bound','initial value','upper bound','true value','true value inside?'};
+h_inf=[-h_theta_lower*dt+AB0(idxJ),AB0(idxJ),h_theta_upper*dt+AB0(idxJ),...,
+    AB_true(idxJ),-h_theta_lower*dt+AB0(idxJ)<AB_true(idxJ) & AB_true(idxJ)<h_theta_upper*dt+AB0(idxJ)]; % to see params bound and see if AB_true is inside
+output = [header; num2cell(h_inf)]; % run to see bounds
+
+% second option:
+
+theta_uncert = 1.0/dt;
+AB0_parms=AB0(idxJ);
+h_theta_upper=theta_uncert * ones(size(idxJ));
+h_theta_lower=theta_uncert * ones(size(idxJ));
+h_theta=[h_theta_upper;h_theta_lower];
+header = {'lower bound','initial value','upper bound','true value','true value inside?'};
+h_inf=[-h_theta_lower*dt+AB0(idxJ),AB0(idxJ),h_theta_upper*dt+AB0(idxJ),...,
+    AB_true(idxJ),-h_theta_lower*dt+AB0(idxJ)<AB_true(idxJ) & AB_true(idxJ)<h_theta_upper*dt+AB0(idxJ)]; % to see params bound and see if AB_true is inside
+output = [header; num2cell(h_inf)];  % run to see bounds
 
 % Get Set Membership estimation
 nSteps = nData;
@@ -184,6 +215,18 @@ term_crit = 10; % The estimation tries to tighten the dTheta uncertainty bounds 
 if exist('dTheta_final_bounds_last', 'var'), fprintf('Warmstarting'); end
 
 while (true)
+    if first_option
+        theta_uncert = 1.0/dt;
+        AB0_parms=AB_ms(idxJ);
+        h_theta_upper=theta_uncert * ones(size(idxJ));
+        h_theta_lower=theta_uncert * ones(size(idxJ));
+        h_theta_upper(AB0_parms<0)=-AB0_parms(AB0_parms<0)/dt;
+        h_theta_lower(AB0_parms<0)=-AB0_parms(AB0_parms<0)/dt;
+
+        h_theta_lower(AB0_parms>0)=AB0_parms(AB0_parms>0)/dt;
+        h_theta_upper(AB0_parms>0)=AB0_parms(AB0_parms>0)/dt;
+        h_theta=[h_theta_upper;h_theta_lower];
+    end
     % define initial parameter set
     Omega{1} = Polyhedron(H_theta, h_theta);
     Hh_theta = H_theta .* h_theta;
