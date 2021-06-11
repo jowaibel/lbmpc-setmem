@@ -473,9 +473,9 @@ if see_progress close(progressbar); end
 figure
 for it_s = 1:size(s,1)
     subplot(2+size(s,1),1,it_s)
-    plot(X_lin(s(it_s),2:end),"r")
+    plot(X_lin(s(it_s),1:end),"r")
     hold on
-    plot(X_ms(s(it_s),2:end),"g")
+    plot(X_ms(s(it_s),1:end),"g")
     hold on
     plot(ref(it_s,:),"k")
     legend(["Initial","M.S","ref."])
