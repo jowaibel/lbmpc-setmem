@@ -271,11 +271,11 @@ while (true)
 
             dTheta_bounds(nSteps+1,:) = sm.theta_bounds';
             dTheta_bounds(:,:) = interp1([1 2],[dTheta_bounds(1,:);dTheta_bounds(end,:)], linspace(1,2,nSteps+1));
-            iStep = nSteps;
         end
+        iStep = nSteps;
     end
     
-    if iStep == nSteps
+    if ~Omega{iStep+1}.isEmptySet       % if omega is empty always restart after increasing w_max
         AB_ms = sm.get_AB(); % Save current AB estimate
         % Prepare restart of estimation with updated W (warmstart)
         if estimate_based_W
