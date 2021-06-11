@@ -152,6 +152,19 @@ classdef SimulatorClass < handle
             subplot(obj.nx, 1, 1);
             legend('true','initial guess', 'estimated system');
         end
+        
+        function [NRMSE_init, NRMSE_ms] = calculateNRMSE(obj)
+            X0 = obj.lin_init_state_traj;
+            X_ms = obj.lin_ms_state_traj;
+            Xl = obj.lin_state_traj;
+            
+            RMSE_init = sqrt(sum((X0-Xl).^2, 2));          % nx RMSE-values of the initial guess model
+            NRMSE_init = mean(RMSE_init./abs(mean(Xl,2)));     % Mean of nx normalized RMSE-values
+            
+            RMSE_ms = sqrt(sum((X_ms-Xl).^2, 2));         % nx RMSE-values of the initial guess model
+            NRMSE_ms = mean(RMSE_ms./abs(mean(Xl,2)));       % Mean of nx normalized RMSE-values
+                        
+        end
     end
 end
 

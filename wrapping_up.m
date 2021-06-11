@@ -345,7 +345,8 @@ sim.simulate_estimSyst(t0, t_end, mdl.x_trim, U);   % simulate initial guess and
 sim.plotEstimStateTrajectory();                     % plot state trajectories of true, initial and estimated system
 
 
-
+[NRMSE_init, NRMSE_ms] = sim.calculateNRMSE();
+fprintf(['\n\nNormalized RMSE improved from ' num2str(NRMSE_init) ' (initial guess) to ' num2str(NRMSE_ms) ' (estimated model)']);
 
 
 return
