@@ -425,67 +425,80 @@ for var = 1:4
 end
 
 %% Maneuver with linearized model and membership model the non linear simulator
-% In constrast with the membership model, the linearized model can not be obtained without aircraft parameter knowledgement. There are two nominal MPC functions implemented, as the linearized model works with xdot=A(x-xtrim).... and the membership with xdot=Ax+Bu...
-% Define maneuver (this maneuver is a stepwise trajectory tracking maneuver
-% looking to align alpha and gamma):
-alpha_ref=[repmat(deg2rad(-4),1,200) repmat(deg2rad(0),1,500)];
-gamma_ref=alpha_ref;
+see_progress=true; %show progress bar
+ref_q=[repmat(deg2rad(0),1,size(ref_theta,2))];
+ref_theta=[repmat(deg2rad(-40),1,200) repmat(deg2rad(0),1,200)];
+ref=[ref_q;ref_theta];
+s=[3;4]; %state(s) to control in concordance with ref order
+H=20; % MPC horizon
+opt_steps=size(ref,2)-H;
+disp("Controlling state variable ["+char(mdls.xflr_uw.sys.StateName(s))+"] for "+dt*size(ref,2)+" seconds, horizon H="+H+" steps ("+dt*H+" seconds)")
 
 %with linearized model
 x_ini=x_trim';
 x0=x_ini';
 X_lin=x0;
-for t = 1:400
-    [U,X,u]=MPC_nom_lin(x0,dt,alpha_ref(:,t:end),gamma_ref(:,t:end),20);
-    x0=x0+dyn_func_gam(x0, u)*dt;
+if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
+for t = 1:opt_steps
+    [U,X,u]=MPC_nom(A0,B0,x0,ref(:,t:end),s,H);
+    x0=A_true*x0+B_true*u;
     X_lin=cat(2,X_lin,x0);
     if isnan(u)
         break
     end
+    if see_progress
+        waitbar(t/opt_steps, progressbar, sprintf('Initial model MPC Progress: %d %%', floor(t/opt_steps*100))); % Update progress bar
+    end
 end
+if see_progress close(progressbar); end
 
 %with membership model
 x_ini=x_trim';
 x0=x_ini';
 X_ms=x0;
-for t = 1:400
-    [U,X,u]=MPC_nom(A_ms,B_ms,x0,dt,alpha_ref(:,t:end),gamma_ref(:,t:end),20);
-    x0=x0+dyn_func_gam(x0, u)*dt;
+if see_progress progressbar= waitbar(0, 'Starting'); end
+for t = 1:opt_steps
+    [U,X,u]=MPC_nom(A_ms,B_ms,x0,ref(:,t:end),s,H);
+    x0=A_true*x0+B_true*u;
     X_ms=cat(2,X_ms,x0);
     if isnan(u)
         break
     end
+    if see_progress
+        waitbar(t/opt_steps, progressbar, sprintf('M.S model MPC Progress: %d %%', floor(t/opt_steps*100))); % Update progress bar
+    end
+end
+if see_progress close(progressbar); end
+
+figure
+for it_s = 1:size(s,1)
+    subplot(2+size(s,1),1,it_s)
+    plot(X_lin(s(it_s),2:end),"r")
+    hold on
+    plot(X_ms(s(it_s),2:end),"g")
+    hold on
+    plot(ref(it_s,:),"k")
+    legend(["Initial","M.S","ref."])
+    ylabel(char(mdls.xflr_uw.sys.StateName(s(it_s))))
 end
 
-figure
-subplot(3,1,1)
-plot(X_lin(2,:),"r")
+obj_lin=sum((X_lin(s,:)-ref(:,1:size(X_lin,2))).^2,1);
+obj_ms=sum((X_ms(s,:)-ref(:,1:size(X_ms,2))).^2,1);
+subplot(2+size(s,1),1,size(s,1)+1)
+plot(obj_lin,"r")
 hold on
-plot(X_ms(2,:),"g")
-hold on
-plot(alpha_ref,"k")
-legend(["linearized","M.S","ref."])
-ylabel("alpha")
-subplot(3,1,2)
-plot(X_lin(4,:),"r")
-hold on
-plot(X_ms(4,:),"g")
-hold on
-plot(gamma_ref,"k")
-legend(["linearized","M.S","ref."])
-ylabel("gamma")
+plot(obj_ms,"g")
+legend(["Initial","M.S"])
+title("Objective function evaluation")
 
-figure
-sgtitle("Objective function evaluation")
-plot((X_lin(2,:)-alpha_ref(1,1:size(X_lin,2))).^2+(X_lin(4,:)-gamma_ref(1,1:size(X_lin,2))).^2,"r")
+subplot(2+size(s,1),1,size(s,1)+2)
+cs_ini=cumsum(obj_lin);
+cs_ms=cumsum(obj_ms);
+plot(cs_ini,"r")
 hold on
-plot((X_ms(2,:)-alpha_ref(1,1:size(X_ms,2))).^2+(X_ms(4,:)-gamma_ref(1,1:size(X_ms,2))).^2,"g")
-legend(["linearized","M.S"])
+plot(cs_ms,"g")
+legend(["Initial: "+cs_ini(end),"M.S: "+cs_ms(end)])
+title("Cumulative objective function evaluation")
 
-figure
-sgtitle("Cumulative objective function evaluation")
-plot(cumsum((X_lin(2,:)-alpha_ref(1,1:size(X_lin,2))).^2+(X_lin(4,:)-gamma_ref(1,1:size(X_lin,2))).^2),"r")
-hold on
-plot(cumsum((X_ms(2,:)-alpha_ref(1,1:size(X_ms,2))).^2+(X_ms(4,:)-gamma_ref(1,1:size(X_ms,2))).^2),"g")
-legend(["linearized","M.S"])
+
 
