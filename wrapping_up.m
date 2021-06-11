@@ -426,11 +426,11 @@ end
 
 %% Maneuver with linearized model and membership model the non linear simulator
 see_progress=true; %show progress bar
-ref_q=[repmat(deg2rad(0),1,size(ref_theta,2))];
-ref_theta=[repmat(deg2rad(-40),1,200) repmat(deg2rad(0),1,200)];
-ref=[ref_q;ref_theta];
-s=[3;4]; %state(s) to control in concordance with ref order
-H=20; % MPC horizon
+ref_q=[repmat(deg2rad(0),1,40)];
+ref_theta=[repmat(deg2rad(-40),1,20) repmat(deg2rad(0),1,20)];
+ref=[ref_q];
+s=[3]; %state(s) to control in concordance with ref order (in this case applying only q control)
+H=5; % MPC horizon
 opt_steps=size(ref,2)-H;
 disp("Controlling state variable ["+char(mdls.xflr_uw.sys.StateName(s))+"] for "+dt*size(ref,2)+" seconds, horizon H="+H+" steps ("+dt*H+" seconds)")
 
@@ -499,6 +499,3 @@ hold on
 plot(cs_ms,"g")
 legend(["Initial: "+cs_ini(end),"M.S: "+cs_ms(end)])
 title("Cumulative objective function evaluation")
-
-
-
