@@ -67,12 +67,15 @@ df_ns = sim.state_traj(:,2:end)';
 df_lin_s = sim.lin_state_traj(:,1:end-1)';
 df_lin_ns = sim.lin_state_traj(:,2:end)';
 
+% Add some measurement noise 
+measure_noise_rel = 0.1;       % relative measurement noise
+noisy_states = [0 1 1 1];       % select states with noise
+df_lin_ns = df_lin_ns + (measure_noise_rel*diag(noisy_states)*df_lin_ns'.*(2*(rand(size(df_lin_ns))'-0.5)))';
+
+
 % Check discretization uncertainty
 A_true = sim.Ad; % Discretization from truncated Talor series (Euler discretization)
 B_true = sim.Bd;
-% M = expm([Ac Bc; zeros(nu, nx+nu)]*dt);   % Discretization with matrix-exponential-function
-% A_true(:,:) = M(1:nx, 1:nx);
-% B_true(:,:) = M(1:nx, (nx+1):(nx+nu));
 
 % Cut whole time and input signals
 cutIdx = (T > 0 & T < 1.9);
@@ -85,10 +88,6 @@ df_s = df_s(cutIdx,:);
 df_ns = df_ns(cutIdx,:);
 df_lin_s = df_lin_s(cutIdx,:);
 df_lin_ns = df_lin_ns(cutIdx,:);
-
-nData = size(df_s, 1);
-df_disc_ns = repmat(x_trim',nData,1) + (A_true*(df_lin_s(:,1:4)-repmat(x_trim',nData,1))' + B_true*(df_u(:,1)-repmat(u_trim(1)',nData,1))')';
-disc_uncert = max((df_lin_ns-df_disc_ns),[],1);
 
 %% Initial guess for dynamics: XFLR model
 JA = logical([
@@ -146,7 +145,6 @@ h_theta = ( [-AB0_neg(idxJ); AB0_pos(idxJ)] + theta_rel_uncert * [AB0_pos(idxJ);
 % h_theta = repmat(theta_uncert * abs(Ac0Bc0(idxJ)), 2, 1); % ### Symmetric uncertainty
 
 % Get Set Membership estimation
-nSteps = nData;
 nSteps = 100;
 % Select nSteps samples from dataset, either randomly or equally distributed
 %dataIdx = randperm(nData);          % Random selection from dataset
@@ -179,7 +177,7 @@ clear dTheta_final_bounds_last
 recursive_estimation = false;
 estimate_based_W = false;
 
-term_crit = 10; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
+term_crit = 1; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
         
 if exist('dTheta_final_bounds_last', 'var'), fprintf('Warmstarting'); end
 
