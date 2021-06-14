@@ -1,4 +1,4 @@
-function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_set)
+function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_set, K)
     
     sx=4; %num. states
     su=1; %num. inputs
@@ -19,7 +19,11 @@ function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_set)
         
         % State & Input Constraints
 %         constraints_MPC=[constraints_MPC, x_i(1,i+1) >= 0]; %Va (velocity norm) major to zero always
-        constraints_MPC=[constraints_MPC, deg2rad(-30) <= u_i(1,i) <= deg2rad(30)]; % Elevator deflection is limited by +-30 deg
+        % constraints_MPC=[constraints_MPC, deg2rad(-30) <= u_i(1,i) <= deg2rad(30)]; % Elevator deflection is limited by +-30 deg
+        U_set = Polyhedron([1;-1], [deg2rad(30); deg2rad(30)]);     % Elevator deflection is limited by +-30 deg
+        U_t{i} = U_set - K*F{i};
+
+        constraints_MPC=[constraints_MPC, U_t{i}.A * u_i(:,i) <= U_t{i}.b]; 
         X_t{i+1} = X_set - F{i+1};
         X_t{i+1}=X_t{i+1}.minHRep;
         constraints_MPC=[constraints_MPC, X_t{i+1}.A * x_i(:,i+1) <= X_t{i+1}.b];

@@ -148,6 +148,7 @@ H_theta=[eye(np); -eye(np)];
 
 
 % first option:
+first_option = false;
 theta_uncert = 1.0/dt;
 AB0_parms=AB0(idxJ);
 AB_true = [A_true B_true];
@@ -391,38 +392,38 @@ sim.plotEstimStateTrajectory();                     % plot state trajectories of
 
 
 
-return
+%return
 
 % These membership estimations should'nt converge, as the initial guess is the horizontal line, its a different plot that the one used before.
 
 
 
-figure
-sgtitle("Nextstate v/s state, Linearized model (red), data (blue), M.S model (green)")
-states=["Va","alpha","q","gamma"];
-for var = 1:4
-    subplot(2,2,var)
-    plot(df_s(:,var),df_ns(:,var), 'bp', 'MarkerSize', 0.5) %state against next state
-    hold on
-    plot(df_s(:,var),df_lin_ns(:,var), 'rp', 'MarkerSize', 0.5)
-    hold on
-    plot(df_s(:,var),df_ms_ns(:,var), 'gp', 'MarkerSize', 1)
-    xlim([min(df_s(:,var)),max(df_s(:,var))]);
-    ylim([min(df_ns(:,var)),max(df_ns(:,var))]);
-    xlabel(states(var));
-end
-
-figure
-sgtitle(["Nextstate(data) - Nextstate(linearized model) [blue]"; ...
-    "and Nextstate(data) - Nextstate(membership model) [green]"])
-for var = 1:4
-    subplot(2,2,var)
-    plot(df_s(:,var),df_ns(:,var)-df_lin_ns(:,var), 'bp', 'MarkerSize', 1)
-    hold on;
-    plot(df_s(:,var),df_ns(:,var)-df_ms_ns(:,var), 'gp', 'MarkerSize', 1)
-    xlim([min(df_s(:,var)),max(df_s(:,var))]);
-    xlabel(states(var));
-end
+% figure
+% sgtitle("Nextstate v/s state, Linearized model (red), data (blue), M.S model (green)")
+% states=["Va","alpha","q","gamma"];
+% for var = 1:4
+%     subplot(2,2,var)
+%     plot(df_s(:,var),df_ns(:,var), 'bp', 'MarkerSize', 0.5) %state against next state
+%     hold on
+%     plot(df_s(:,var),df_lin_ns(:,var), 'rp', 'MarkerSize', 0.5)
+%     hold on
+%     plot(df_s(:,var),df_ms_ns(:,var), 'gp', 'MarkerSize', 1)
+%     xlim([min(df_s(:,var)),max(df_s(:,var))]);
+%     ylim([min(df_ns(:,var)),max(df_ns(:,var))]);
+%     xlabel(states(var));
+% end
+% 
+% figure
+% sgtitle(["Nextstate(data) - Nextstate(linearized model) [blue]"; ...
+%     "and Nextstate(data) - Nextstate(membership model) [green]"])
+% for var = 1:4
+%     subplot(2,2,var)
+%     plot(df_s(:,var),df_ns(:,var)-df_lin_ns(:,var), 'bp', 'MarkerSize', 1)
+%     hold on;
+%     plot(df_s(:,var),df_ns(:,var)-df_ms_ns(:,var), 'gp', 'MarkerSize', 1)
+%     xlim([min(df_s(:,var)),max(df_s(:,var))]);
+%     xlabel(states(var));
+% end
 
 %% Maneuver with linearized model and membership model the non linear simulator
 see_progress=true; %show progress bar
@@ -431,7 +432,7 @@ AB_ms=[A_ms B_ms];
 AB_ini=[A_ini B_ini];
 DW_ms = DXP - AB_ms * [DX; DU];
 DW_ini = DXP - AB_ini * [DX; DU];
-ref_q=[repmat(deg2rad(3),1,40)];
+ref_q=[repmat(deg2rad(0),1,40)];
 ref_theta=[repmat(deg2rad(-40),1,20) repmat(deg2rad(0),1,20)];
 ref=[ref_q];
 s=[3]; %state(s) to control in concordance with ref order (in this case applying only theta control)
@@ -445,6 +446,18 @@ Hw = [eye(nx);-eye(nx)];
 W_ms = Polyhedron(Hw,[w_max_ms; w_max_ms]);
 W_ini = Polyhedron(Hw,[w_max_ini; w_max_ini]);
 
+% Ancillary/Tube Controller for Constraint Tightening
+use_tube_controller = true;
+if use_tube_controller
+    [K_ms, P_ms] = dlqr(A_ms,B_ms,eye(nx),10*eye(nu));     % Q = 10*eye(nx), R = 10*eye(nu)
+    K_ms = -K_ms;
+    [K_ini, P_ini] = dlqr(A_ini,B_ini,eye(nx),10*eye(nu));     % Q = 10*eye(nx), R = 10*eye(nu)
+    K_ini = -K_ini;
+else
+    K_ms = 0;
+    K_ini = 0;
+end
+
 upper_ms=[0;0;0;0];
 lower_ms=[0;0;0;0];
 upper_ini=[0;0;0;0];
@@ -453,9 +466,14 @@ F_ms{1} = Polyhedron(zeros(0,nx),[]);   %start with empty poylhedron
 F_ini{1} = Polyhedron(zeros(0,nx),[]);   %start with empty poylhedron
 if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
 for i=1:H
-    F_ms{i+1} = plus(A_ms*F_ms{i},W_ms,'vrep');
+    if use_tube_controller
+        F_ms{i+1} = plus((A_ms+B_ms*K_ms)*F_ms{i}, W_ms, 'vrep');
+        F_ini{i+1} = plus((A_ini+B_ini*K_ini)*F_ini{i}, W_ini, 'vrep');
+    else
+        F_ms{i+1} = plus(A_ms*F_ms{i},W_ms,'vrep');
+        F_ini{i+1} = plus(A_ini*F_ini{i},W_ini,'vrep');
+    end
     F_ms{i+1}.minHRep;
-    F_ini{i+1} = plus(A_ini*F_ini{i},W_ini,'vrep');
     F_ini{i+1}.minHRep;
     if i>1
         proj_ms=[projection(F_ms{i},[1]).H ; projection(F_ms{i},[2]).H ; projection(F_ms{i},[3]).H ; projection(F_ms{i},[4]).H];
@@ -496,10 +514,11 @@ x0=x_ini';
 X_ms=x0;
 if see_progress progressbar= waitbar(0, 'Starting'); end
 for t = 1:opt_steps
-    [U,X,u]=MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_set);
+    [U,X,u]=MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_set,K_ms);
     x0=A_true*x0+B_true*u;
     X_ms=cat(2,X_ms,x0);
     if isnan(u)
+        fprintf('\nMPC with est. model infeasible');
         break
     end
     if see_progress
@@ -514,10 +533,11 @@ x0=x_ini';
 X_ini=x0;
 if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
 for t = 1:opt_steps
-    [U,X,u]=MPC_tight(A_ini,B_ini,x0,ref(:,t:end),s,H,F_ini,X_set);
+    [U,X,u]=MPC_tight(A_ini,B_ini,x0,ref(:,t:end),s,H,F_ini,X_set,K_ini);
     x0=A_true*x0+B_true*u;
     X_ini=cat(2,X_ini,x0);
     if isnan(u)
+        fprintf('\nMPC with init. model infeasible');
         break
     end
     if see_progress
