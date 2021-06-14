@@ -426,14 +426,63 @@ end
 
 %% Maneuver with linearized model and membership model the non linear simulator
 see_progress=true; %show progress bar
+A_ini=A0;B_ini=B0;
+AB_ms=[A_ms B_ms];
+AB_ini=[A_ini B_ini];
+DW_ms = DXP - AB_ms * [DX; DU];
+DW_ini = DXP - AB_ini * [DX; DU];
 ref_q=[repmat(deg2rad(0),1,40)];
 ref_theta=[repmat(deg2rad(-40),1,20) repmat(deg2rad(0),1,20)];
 ref=[ref_q];
-s=[3]; %state(s) to control in concordance with ref order (in this case applying only q control)
+s=[3]; %state(s) to control in concordance with ref order (in this case applying only theta control)
 H=5; % MPC horizon
 opt_steps=size(ref,2)-H;
 disp("Controlling state variable ["+char(mdls.xflr_uw.sys.StateName(s))+"] for "+dt*size(ref,2)+" seconds, horizon H="+H+" steps ("+dt*H+" seconds)")
+w_max_ms = max(abs(DW_ms), [], 2);
+w_max_ini = max(abs(DW_ini), [], 2);
 
+Hw = [eye(nx);-eye(nx)];
+W_ms = Polyhedron(Hw,[w_max_ms; w_max_ms]);
+W_ini = Polyhedron(Hw,[w_max_ini; w_max_ini]);
+
+upper_ms=[0;0;0;0];
+lower_ms=[0;0;0;0];
+upper_ini=[0;0;0;0];
+lower_ini=[0;0;0;0];
+F_ms{1} = Polyhedron(zeros(0,nx),[]);   %start with empty poylhedron
+F_ini{1} = Polyhedron(zeros(0,nx),[]);   %start with empty poylhedron
+if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
+for i=1:H
+    F_ms{i+1} = plus(A_ms*F_ms{i},W_ms,'vrep');
+    F_ms{i+1}.minHRep;
+    F_ini{i+1} = plus(A_ini*F_ini{i},W_ini,'vrep');
+    F_ini{i+1}.minHRep;
+    if i>1
+        proj_ms=[projection(F_ms{i},[1]).H ; projection(F_ms{i},[2]).H ; projection(F_ms{i},[3]).H ; projection(F_ms{i},[4]).H];
+        upper_ms=[upper_ms, abs(proj_ms(1:2:end,2)./proj_ms(1:2:end,1))];
+        lower_ms=[lower_ms, -abs(proj_ms(2:2:end,2)./proj_ms(2:2:end,1))];
+        
+        proj_ini=[projection(F_ini{i},[1]).H ; projection(F_ini{i},[2]).H ; projection(F_ini{i},[3]).H ; projection(F_ini{i},[4]).H];
+        upper_ini=[upper_ini, abs(proj_ini(1:2:end,2)./proj_ini(1:2:end,1))];
+        lower_ini=[lower_ini, -abs(proj_ini(2:2:end,2)./proj_ini(2:2:end,1))];
+    end
+    if see_progress
+        waitbar(i/H, progressbar, sprintf('Forward reachable set Progress: %d %%', floor(i/H*100))); % Update progress bar
+    end
+end
+if see_progress close(progressbar); end
+
+figure
+for k =1:nx
+    subplot(4,2,k*2-1);fill([1:H, fliplr(1:H)],[lower_ms(k,:), fliplr(upper_ms(k,:))],'g');
+    if k==1 title("M.S"); end
+    ylabel(char(mdls.xflr_uw.sys.StateName(k)));
+end
+for k =1:nx
+    subplot(4,2,k*2);fill([1:H, fliplr(1:H)],[lower_ini(k,:), fliplr(upper_ini(k,:))],'g');
+    if k==1 title("Initial"); end
+    ylabel(char(mdls.xflr_uw.sys.StateName(k)));
+end
 %with linearized model
 x_ini=x_trim';
 x0=x_ini';
