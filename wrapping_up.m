@@ -431,7 +431,7 @@ AB_ms=[A_ms B_ms];
 AB_ini=[A_ini B_ini];
 DW_ms = DXP - AB_ms * [DX; DU];
 DW_ini = DXP - AB_ini * [DX; DU];
-ref_q=[repmat(deg2rad(0),1,40)];
+ref_q=[repmat(deg2rad(3),1,40)];
 ref_theta=[repmat(deg2rad(-40),1,20) repmat(deg2rad(0),1,20)];
 ref=[ref_q];
 s=[3]; %state(s) to control in concordance with ref order (in this case applying only theta control)
@@ -467,7 +467,7 @@ for i=1:H
         lower_ini=[lower_ini, -abs(proj_ini(2:2:end,2)./proj_ini(2:2:end,1))];
     end
     if see_progress
-        waitbar(i/H, progressbar, sprintf('Forward reachable set Progress: %d %%', floor(i/H*100))); % Update progress bar
+        waitbar(i/H, progressbar, sprintf('Dist. reachable set Progress: %d %%', floor(i/H*100))); % Update progress bar
     end
 end
 if see_progress close(progressbar); end
@@ -475,31 +475,20 @@ if see_progress close(progressbar); end
 figure
 for k =1:nx
     subplot(4,2,k*2-1);fill([1:H, fliplr(1:H)],[lower_ms(k,:), fliplr(upper_ms(k,:))],'g');
-    if k==1 title("M.S"); end
+    if k==1 title("Disturb. reach. sets M.S"); end
     ylabel(char(mdls.xflr_uw.sys.StateName(k)));
 end
 for k =1:nx
     subplot(4,2,k*2);fill([1:H, fliplr(1:H)],[lower_ini(k,:), fliplr(upper_ini(k,:))],'g');
-    if k==1 title("Initial"); end
+    if k==1 title("Disturb. reach. sets Initial"); end
     ylabel(char(mdls.xflr_uw.sys.StateName(k)));
 end
-%with linearized model
-x_ini=x_trim';
-x0=x_ini';
-X_lin=x0;
-if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
-for t = 1:opt_steps
-    [U,X,u]=MPC_nom(A0,B0,x0,ref(:,t:end),s,H);
-    x0=A_true*x0+B_true*u;
-    X_lin=cat(2,X_lin,x0);
-    if isnan(u)
-        break
-    end
-    if see_progress
-        waitbar(t/opt_steps, progressbar, sprintf('Initial model MPC Progress: %d %%', floor(t/opt_steps*100))); % Update progress bar
-    end
-end
-if see_progress close(progressbar); end
+%% 
+% specify states domain
+H_x=[eye(nx);-eye(nx)];
+h_x=[13.5 ; 0 ; .4 ; .2; 
+     -12 ; 3 ; .4 ; .2];
+X_set=Polyhedron(H_x,h_x);
 
 %with membership model
 x_ini=x_trim';
@@ -507,7 +496,7 @@ x0=x_ini';
 X_ms=x0;
 if see_progress progressbar= waitbar(0, 'Starting'); end
 for t = 1:opt_steps
-    [U,X,u]=MPC_nom(A_ms,B_ms,x0,ref(:,t:end),s,H);
+    [U,X,u]=MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_set);
     x0=A_true*x0+B_true*u;
     X_ms=cat(2,X_ms,x0);
     if isnan(u)
@@ -519,10 +508,40 @@ for t = 1:opt_steps
 end
 if see_progress close(progressbar); end
 
+%with linearized model
+x_ini=x_trim';
+x0=x_ini';
+X_ini=x0;
+if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
+for t = 1:opt_steps
+    [U,X,u]=MPC_tight(A_ini,B_ini,x0,ref(:,t:end),s,H,F_ini,X_set);
+    x0=A_true*x0+B_true*u;
+    X_ini=cat(2,X_ini,x0);
+    if isnan(u)
+        break
+    end
+    if see_progress
+        waitbar(t/opt_steps, progressbar, sprintf('Initial model MPC Progress: %d %%', floor(t/opt_steps*100))); % Update progress bar
+    end
+end
+if see_progress close(progressbar); end
+
+figure
+for k=1:nx
+    subplot(4,2,2*k-1);plot(X_ms(k,:));hold on;ylabel(char(mdls.xflr_uw.sys.StateName(k)));
+    if k==1 title("MPC M.S constr. satisf."); end
+    plot(1:opt_steps,h_x(k)*ones(opt_steps,1),"--");hold on;plot(1:opt_steps,-h_x(k+4)*ones(opt_steps,1),"--")
+end
+for k=1:nx
+    subplot(4,2,2*k);plot(X_ini(k,:));hold on;ylabel(char(mdls.xflr_uw.sys.StateName(k)));
+    if k==1 title("MPC initial model constr. satisf."); end
+    plot(1:opt_steps,h_x(k)*ones(opt_steps,1),"--");hold on;plot(1:opt_steps,-h_x(k+4)*ones(opt_steps,1),"--")
+end
+
 figure
 for it_s = 1:size(s,1)
     subplot(2+size(s,1),1,it_s)
-    plot(X_lin(s(it_s),1:end),"r")
+    plot(X_ini(s(it_s),1:end),"r")
     hold on
     plot(X_ms(s(it_s),1:end),"g")
     hold on
@@ -531,17 +550,17 @@ for it_s = 1:size(s,1)
     ylabel(char(mdls.xflr_uw.sys.StateName(s(it_s))))
 end
 
-obj_lin=sum((X_lin(s,:)-ref(:,1:size(X_lin,2))).^2,1);
+obj_ini=sum((X_ini(s,:)-ref(:,1:size(X_ini,2))).^2,1);
 obj_ms=sum((X_ms(s,:)-ref(:,1:size(X_ms,2))).^2,1);
 subplot(2+size(s,1),1,size(s,1)+1)
-plot(obj_lin,"r")
+plot(obj_ini,"r")
 hold on
 plot(obj_ms,"g")
 legend(["Initial","M.S"])
 title("Objective function evaluation")
 
 subplot(2+size(s,1),1,size(s,1)+2)
-cs_ini=cumsum(obj_lin);
+cs_ini=cumsum(obj_ini);
 cs_ms=cumsum(obj_ms);
 plot(cs_ini,"r")
 hold on
