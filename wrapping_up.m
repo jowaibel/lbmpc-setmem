@@ -13,7 +13,7 @@ mdls = lon_LTI_models();
 addpath('nl_dynamics')
 
 % ## USER ## Select model (linear and nonlinear)
-mdl = mdls.uw; % Select linear model
+mdl = mdls.pitch; % Select linear model
 
 % Remove throttle input
 mdl.sys = ss(mdl.sys.A, mdl.sys.B(:,1), mdl.sys.C, mdl.sys.D(:,1), ...
@@ -27,7 +27,7 @@ Bc = mdl.sys.B
 x_trim = mdl.x_trim; nx = length(x_trim);
 u_trim = mdl.u_trim; nu = length(u_trim);
 
-dyn_func = @dyn_func_uw; % ## USER ## Select (same) nonlinear model
+dyn_func = @dyn_func_theta; % ## USER ## Select (same) nonlinear model
 
 % Create sim for model
 dt = 0.01; % Simulation discretization
@@ -101,9 +101,9 @@ J = [JA JB];
 idxJ = find(J);
 
 % Initial guess for dynamics: XFLR model - but only uncertain values chosen in JA and JB
-init_model = mdls.uw;
-init_model.sys.A(JA(:)) = mdls.xflr_uw.sys.A(JA(:));
-init_model.sys.B(JB(:)) = mdls.xflr_uw.sys.B(JB(:));
+init_model = mdls.pitch;
+init_model.sys.A(JA(:)) = mdls.xflr_pitch.sys.A(JA(:));
+init_model.sys.B(JB(:)) = mdls.xflr_pitch.sys.B(JB(:));
 %init_model = mdls.gamma;
 Ac0 = init_model.sys.A;
 Bc0 = init_model.sys.B(:,1);
