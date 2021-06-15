@@ -7,10 +7,11 @@ classdef SimulatorClass < handle
         Ac, Bc, x_trim, u_trim, Ad, Bd, Ade, Bde, A0, B0, A_ms, B_ms
         time, state_traj, lin_state_traj, lin_dyn_traj, lind_state_traj, linde_state_traj
         lin_init_state_traj, lin_ms_state_traj
+        process_noise_abs
     end
     
     methods
-        function obj = SimulatorClass(nonlin_dyn_func, lin_mdl, dt)
+        function obj = SimulatorClass(nonlin_dyn_func, lin_mdl, dt, process_noise_abs)
             obj.dt = dt;
             obj.x_trim = lin_mdl.x_trim; obj.nx = length(obj.x_trim);
             obj.u_trim = lin_mdl.u_trim; obj.nu = length(obj.u_trim);
@@ -32,6 +33,8 @@ classdef SimulatorClass < handle
             F = expm(M*dt);
             obj.Ade = F(1:obj.nx, 1:obj.nx);     % Exact discretization
             obj.Bde = F(1:obj.nx, obj.nx+1:end); % Exact discretization
+            
+            obj.process_noise_abs = process_noise_abs;
         end
         
         function obj = addModels(obj, AB0, AB_ms)
@@ -82,10 +85,12 @@ classdef SimulatorClass < handle
             Xlde = [x0, zeros(obj.nx, nSteps)]; % linear discrete state trajectory
             
             for iStep = 1:nSteps
-                X(:,iStep+1)  = obj.simulate_one_step(X(:,iStep), U(:,iStep));
+                noise = diag(obj.process_noise_abs) * (2*(rand(obj.nx,1)-0.5));
+                X(:,iStep+1)  = obj.simulate_one_step(X(:,iStep), U(:,iStep)) + noise;
                 [Xl(:,iStep+1), dXl(:,iStep)] = obj.simulate_one_step_lin(Xl(:,iStep), U(:,iStep));
-                Xld(:,iStep+1) = obj.simulate_one_step_lind(Xld(:,iStep), U(:,iStep));
-                Xlde(:,iStep+1) = obj.simulate_one_step_linde(Xlde(:,iStep), U(:,iStep));
+                Xl(:,iStep+1) = Xl(:,iStep+1) + noise;
+                Xld(:,iStep+1) = obj.simulate_one_step_lind(Xld(:,iStep), U(:,iStep)) + noise;
+                Xlde(:,iStep+1) = obj.simulate_one_step_linde(Xlde(:,iStep), U(:,iStep)) + noise;
             end
             
             obj.time = T;
@@ -102,14 +107,17 @@ classdef SimulatorClass < handle
             
             Xld0 = [x0, zeros(obj.nx, nSteps)]; % linear discrete state trajectory (initial guess system)
             Xld_ms = [x0, zeros(obj.nx, nSteps)]; % linear discrete state trajectory (estimated system)
+            Xl = [x0, zeros(obj.nx, nSteps)];
             
             for iStep = 1:nSteps
                 Xld0(:,iStep+1) = obj.simulate_one_step_init(Xld0(:,iStep), U(:,iStep));
                 Xld_ms(:,iStep+1) = obj.simulate_one_step_estim(Xld_ms(:,iStep), U(:,iStep));
+                [Xl(:,iStep+1), ~] = obj.simulate_one_step_lin(Xl(:,iStep), U(:,iStep));
             end
             
             obj.lin_init_state_traj = Xld0;     
             obj.lin_ms_state_traj = Xld_ms;
+            obj.lin_state_traj = Xl;
         end
         
         function plotStateTrajectory(obj, T, X, Xl)

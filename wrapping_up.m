@@ -29,9 +29,12 @@ u_trim = mdl.u_trim; nu = length(u_trim);
 
 dyn_func = @dyn_func_uw; % ## USER ## Select (same) nonlinear model
 
+% Add some process noise 
+process_noise_abs = [0.1 0.1 0.1 0.1];       % Maximum value of absolute process noise
+
 % Create sim for model
 dt = 0.01; % Simulation discretization
-sim = SimulatorClass(dyn_func, mdl, dt);
+sim = SimulatorClass(dyn_func, mdl, dt, process_noise_abs);
 
 % Simulate
 t0    = 0;
@@ -66,12 +69,6 @@ df_ns = sim.state_traj(:,2:end)';
 
 df_lin_s = sim.lin_state_traj(:,1:end-1)';
 df_lin_ns = sim.lin_state_traj(:,2:end)';
-
-% Add some measurement noise 
-measure_noise_rel = 0.1;       % relative measurement noise
-noisy_states = [0 1 1 1];       % select states with noise
-df_lin_ns = df_lin_ns + (measure_noise_rel*diag(noisy_states)*df_lin_ns'.*(2*(rand(size(df_lin_ns))'-0.5)))';
-
 
 % Check discretization uncertainty
 A_true = sim.Ad; % Discretization from truncated Talor series (Euler discretization)
