@@ -29,11 +29,9 @@ u_trim = mdl.u_trim; nu = length(u_trim);
 
 dyn_func = @dyn_func_uw; % ## USER ## Select (same) nonlinear model
 
-% Add some process noise 
-process_noise_abs = [0.1 0.1 0.1 0.1];       % Maximum value of absolute process noise
-
 % Create sim for model
 dt = 0.01; % Simulation discretization
+process_noise_abs = [1 3 3 0] * dt; % Maximum value of absolute process noise
 sim = SimulatorClass(dyn_func, mdl, dt, process_noise_abs);
 
 % Simulate
@@ -86,6 +84,8 @@ df_ns = df_ns(cutIdx,:);
 df_lin_s = df_lin_s(cutIdx,:);
 df_lin_ns = df_lin_ns(cutIdx,:);
 
+nData = size(df_s, 1);
+
 %% Initial guess for dynamics: XFLR model
 JA = logical([
     1 1 1 1;
@@ -131,18 +131,19 @@ end, clear ABi_
 
 % Bounds on delta parameters
 H_theta=[eye(np); -eye(np)];
-theta_rel_uncert = 1.0;
+theta_rel_uncert = 20.0;
 % Ac0Bc0 = [Ac0, Bc0];
 % Ac0Bc0_pos = Ac0Bc0; Ac0Bc0_pos(Ac0Bc0 < 0) = 0;                % ### Asymmetric uncertainty
 % Ac0Bc0_neg = Ac0Bc0; Ac0Bc0_neg(Ac0Bc0 > 0) = 0;                % ### Asymmetric uncertainty
 % h_theta = theta_uncert * [Ac0Bc0_pos(idxJ); -Ac0Bc0_neg(idxJ)]; % ### Asymmetric uncertainty
-AB0_pos = AB0; AB0_pos(AB0 < 0) = 0;                % ### Asymmetric uncertainty (Discrete system)
-AB0_neg = AB0; AB0_neg(AB0 > 0) = 0;                % ### Asymmetric uncertainty
-h_theta = ( [-AB0_neg(idxJ); AB0_pos(idxJ)] + theta_rel_uncert * [AB0_pos(idxJ); -AB0_neg(idxJ)] ) ./ dt; % ### Bounds to avoid sign flip + uncertainty range in same sign
-% h_theta = repmat(theta_uncert * abs(Ac0Bc0(idxJ)), 2, 1); % ### Symmetric uncertainty
+% % AB0_pos = AB0; AB0_pos(AB0 < 0) = 0;                % ### Asymmetric uncertainty (Discrete system)
+% % AB0_neg = AB0; AB0_neg(AB0 > 0) = 0;                % ### Asymmetric uncertainty
+% % h_theta = ( [-AB0_neg(idxJ); AB0_pos(idxJ)] + theta_rel_uncert * [AB0_pos(idxJ); -AB0_neg(idxJ)] ) ./ dt; % ### Bounds to avoid sign flip + uncertainty range in same sign
+h_theta = repmat(theta_rel_uncert * abs(AB0(idxJ))./dt, 2, 1); % ### Symmetric uncertainty
 
 % Get Set Membership estimation
-nSteps = 100;
+nSteps = nData;
+% nSteps = 100;
 % Select nSteps samples from dataset, either randomly or equally distributed
 %dataIdx = randperm(nData);          % Random selection from dataset
 %dataIdx = 1:floor(nSteps/nSteps):nSteps; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
@@ -172,7 +173,7 @@ clear dTheta_final_bounds_last
 
 %%
 recursive_estimation = false;
-estimate_based_W = false;
+estimate_based_W = true;
 
 term_crit = 1; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
         
@@ -259,6 +260,7 @@ while (true)
                 modify_W_str = 'enlarge';
             end
             fprintf(['\nAll samples used. Empty set, ' modify_W_str ' disturbance set W.']);
+            continue
         else
            
             dTheta_hat(nSteps+1,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
@@ -266,11 +268,12 @@ while (true)
 
             dTheta_bounds(nSteps+1,:) = sm.theta_bounds';
             dTheta_bounds(:,:) = interp1([1 2],[dTheta_bounds(1,:);dTheta_bounds(end,:)], linspace(1,2,nSteps+1));
+            
+            iStep = nSteps; % Set steps to meet following 'estimation completed' condition
         end
-        iStep = nSteps;
     end
     
-    if ~Omega{iStep+1}.isEmptySet       % if omega is empty always restart after increasing w_max
+    if iStep == nSteps % Estimation completed, i.e., all samples used (either recursively or at once)
         AB_ms = sm.get_AB(); % Save current AB estimate
         % Prepare restart of estimation with updated W (warmstart)
         if estimate_based_W
@@ -341,9 +344,7 @@ sim.plotEstimStateTrajectory();                     % plot state trajectories of
 
 
 [NRMSE_init, NRMSE_ms] = sim.calculateNRMSE();
-fprintf(['\n\nNormalized RMSE improved from ' num2str(NRMSE_init) ' (initial guess) to ' num2str(NRMSE_ms) ' (estimated model)']);
-
-
+fprintf(['\nNormalized RMSE improved from ' num2str(NRMSE_init) ' (initial guess) to ' num2str(NRMSE_ms) ' (estimated model)\n']);
 return
 
 % These membership estimations should'nt converge, as the initial guess is the horizontal line, its a different plot that the one used before.
