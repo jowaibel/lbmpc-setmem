@@ -24,8 +24,8 @@ mdl.u_trim = mdl.u_trim(1);
 
 Ac = mdl.sys.A
 Bc = mdl.sys.B
-x_trim = mdl.x_trim; nx = length(x_trim);
-u_trim = mdl.u_trim; nu = length(u_trim);
+x_trim_true = mdl.x_trim; nx = length(x_trim_true);
+u_trim_true = mdl.u_trim; nu = length(u_trim_true);
 
 dyn_func = @dyn_func_theta; % ## USER ## Select (same) nonlinear model
 
@@ -48,7 +48,7 @@ identSig = identSig .* (rand(1,length(identSig)) * 0.2 + 0.9); % Randomize a bit
 
 % Create input trajectory containing identification sequence
 % U = zeros(2,length(T));
-U = repmat(u_trim, 1, length(T));
+U = repmat(u_trim_true, 1, length(T));
 idxStart = find(T>0.1, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(20) * identSig; % Insert ident command starting at 0.25s
 idxStart = find(T>2, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(20) * -identSig;
 
@@ -68,6 +68,12 @@ df_ns = sim.state_traj(:,2:end)';
 df_lin_s = sim.lin_state_traj(:,1:end-1)';
 df_lin_ns = sim.lin_state_traj(:,2:end)';
 
+% Load real data
+load('ident_data') % real data
+df_real_u = allSeqDataControls(:, {'elevator'}).Variables;
+df_real_s = allSeqData(:, {'airspeed', 'alpha1', 'pitchRate_smooth', 'pitch'}).Variables;
+df_real_ns = allSeqData(:, {'airspeed', 'alpha1', 'pitchRate_smooth', 'pitch'}).Variables;
+
 % Check discretization uncertainty
 A_true = sim.Ad; % Discretization from truncated Talor series (Euler discretization)
 B_true = sim.Bd;
@@ -85,26 +91,31 @@ df_lin_s = df_lin_s(cutIdx,:);
 df_lin_ns = df_lin_ns(cutIdx,:);
 
 nData = size(df_s, 1);
+nRealData = size(df_real_s, 1);
 
 %% Initial guess for dynamics: XFLR model
 JA = logical([
-    1 1 1 1;
-    1 1 1 1;
-    1 1 1 0;
-    0 0 1 0]);
+    0 0 0 0;
+    0 1 0 0;
+    0 1 1 0;
+    0 0 0 0]);
 JB = logical([
     0;
     0;
-    1;
+    0;
     0]);
 J = [JA JB];
 idxJ = find(J);
 
 % Initial guess for dynamics: XFLR model - but only uncertain values chosen in JA and JB
 init_model = mdls.pitch;
+init_model.x_trim = mdls.xflr_pitch.x_trim;
+init_model.u_trim = mdls.xflr_pitch.u_trim;
 init_model.sys.A(JA(:)) = mdls.xflr_pitch.sys.A(JA(:));
 init_model.sys.B(JB(:)) = mdls.xflr_pitch.sys.B(JB(:));
-%init_model = mdls.gamma;
+
+x_trim = init_model.x_trim;
+u_trim = init_model.u_trim(1);
 Ac0 = init_model.sys.A;
 Bc0 = init_model.sys.B(:,1);
 
@@ -131,7 +142,7 @@ end, clear ABi_
 
 % Bounds on delta parameters
 H_theta=[eye(np); -eye(np)];
-theta_rel_uncert = 20.0;
+theta_rel_uncert = 50.0;
 % Ac0Bc0 = [Ac0, Bc0];
 % Ac0Bc0_pos = Ac0Bc0; Ac0Bc0_pos(Ac0Bc0 < 0) = 0;                % ### Asymmetric uncertainty
 % Ac0Bc0_neg = Ac0Bc0; Ac0Bc0_neg(Ac0Bc0 > 0) = 0;                % ### Asymmetric uncertainty
@@ -143,7 +154,7 @@ h_theta = repmat(theta_rel_uncert * abs(AB0(idxJ))./dt, 2, 1); % ### Symmetric u
 
 % Get Set Membership estimation
 nSteps = nData;
-% nSteps = 100;
+nSteps = 160;
 % Select nSteps samples from dataset, either randomly or equally distributed
 %dataIdx = randperm(nData);          % Random selection from dataset
 %dataIdx = 1:floor(nSteps/nSteps):nSteps; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
@@ -153,9 +164,17 @@ nSteps = length(dataIdx);
 stepIdx = 0:nSteps;
 
 % Select data for estimation
+% % DU = df_u(dataIdx, :)' - u_trim;        % control dataset
+% % DX = df_lin_s(dataIdx, :)' - x_trim;    % linearized model, state dataset
+% % DXP = df_lin_ns(dataIdx, :)' - x_trim;  % linearized model, next state dataset
+
 DU = df_u(dataIdx, :)' - u_trim;        % control dataset
-DX = df_lin_s(dataIdx, :)' - x_trim;    % linearized model, state dataset
-DXP = df_lin_ns(dataIdx, :)' - x_trim;  % linearized model, next state dataset
+DX = df_s(dataIdx, :)' - x_trim;    % nonlinear model, state dataset
+DXP = df_ns(dataIdx, :)' - x_trim;  % nonlinear model, next state dataset
+
+% % DU = df_real_u(dataIdx, :)' - u_trim;  % real dataset, control input
+% % DX = df_real_s(dataIdx, :)' - x_trim;  % real dataset, state dataset
+% % DXP = df_real_ns(dataIdx, :)' - x_trim; % real dataset, next state dataset
 
 AB_ms = AB0;
 dTheta_hat = zeros(nSteps+1, np); % estimated values
@@ -164,7 +183,7 @@ setD = cell(1, nSteps+1);
 
 % Define additive polytopic uncertainty description
 DW = DXP - AB_ms * [DX; DU];
-w_max = max(abs(DW), [], 2);
+w_max = 1.1 * max(abs(DW), [], 2);
 %w_max = 0.1 * ones(nx, 1); %0.041;
 Hw = [eye(nx); -eye(nx)];
 
@@ -173,7 +192,7 @@ clear dTheta_final_bounds_last
 
 %%
 recursive_estimation = false;
-estimate_based_W = true;
+estimate_based_W = false;
 
 term_crit = 1; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
         
@@ -283,6 +302,7 @@ while (true)
             w_max = 0.9 * w_max;
             modify_W_str = 'Tighten';
         end
+        break; % Run only once
         
         if exist('dTheta_final_bounds_last', 'var')
             % Range between dTheta bounds
