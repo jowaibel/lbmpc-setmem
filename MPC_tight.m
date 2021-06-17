@@ -25,6 +25,7 @@ function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_set, K)
             U_t{i} = U_set;
         else
             U_t{i} = U_set - K*F{i};
+            U_t{i}.minHRep;
         end
 
         constraints_MPC=[constraints_MPC, U_t{i}.A * u_i(:,i) <= U_t{i}.b]; 

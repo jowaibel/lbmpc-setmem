@@ -431,7 +431,9 @@ AB_ms=[A_ms B_ms];
 
 % Set up reference
 ref_q = [repmat(deg2rad(0),1,40)];
-ref_theta = [repmat(deg2rad(5),1,100)];
+ref_theta = [repmat(deg2rad(5),1,100)];     % Step from trim value to new theta
+ref_theta = repmat(x_trim(4)-0.5*deg2rad(5),1,length(100)) + 0.5*deg2rad(5)* square(1/5*(0:1:100));      % Square wave reference
+% ref_theta = repmat(x_trim(4)-0.5*deg2rad(30),1,length(100)) + 0.5*deg2rad(30)* cos(1/5*(0:1:100));      % Sine wave reference
 ref=[ref_theta];
 s=[4]; %state(s) to control in concordance with ref order (in this case applying only theta control)
 H=5; % MPC horizon
@@ -443,6 +445,9 @@ DW_ms = DXP - AB_ms * [DX; DU];
 DW_true = DXP - AB_true * [DX; DU];
 w_max_ms = max(abs(DW_ms), [], 2);
 w_max_true = max(abs(DW_true), [], 2);
+
+w_max_ms = zeros(4,1);
+
 Hw = [eye(nx);-eye(nx)];
 W_ms = Polyhedron(Hw,[w_max_ms; w_max_ms]);
 W_true = Polyhedron(Hw,[w_max_true; w_max_true]);
@@ -464,40 +469,43 @@ upper_ms=[0;0;0;0];
 lower_ms=[0;0;0;0];
 upper_true=[0;0;0;0];
 lower_true=[0;0;0;0];
-F_ms{1} = Polyhedron(zeros(0,nx),[]);   %start with empty poylhedron
-F_true{1} = Polyhedron(zeros(0,nx),[]);   %start with empty poylhedron
+F_ms{1} = Polyhedron(zeros(0,nx),[]);   %start with empty polyhedron
+F_true{1} = Polyhedron(zeros(0,nx),[]);   %start with empty polyhedron
 if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
 for i=1:H
     if use_tube_controller
-        F_ms{i+1} = plus((A_ms+B_ms*K_ms)*F_ms{i}, W_ms, 'vrep');
-        F_true{i+1} = plus((A_true+B_true*K_true)*F_true{i}, W_true, 'vrep');
+        %F_ms{i+1} = plus((A_ms+B_ms*K_ms)*F_ms{i}, W_ms, 'vrep');
+        F_ms{i+1} = (A_ms+B_ms*K_ms)*F_ms{i}+ W_ms;
+        %F_true{i+1} = plus((A_true+B_true*K_true)*F_true{i}, W_true, 'vrep');
+        F_true{i+1} = (A_true+B_true*K_true)*F_true{i} + W_true;
     else
         F_ms{i+1} = plus(A_ms*F_ms{i},W_ms,'vrep');
         F_true{i+1} = plus(A_true*F_true{i},W_true,'vrep');
     end
     F_ms{i+1}.minHRep;
     F_true{i+1}.minHRep;
-    if i>1
-        proj_ms=[projection(F_ms{i},[1]).H ; projection(F_ms{i},[2]).H ; projection(F_ms{i},[3]).H ; projection(F_ms{i},[4]).H];
-        upper_ms=[upper_ms, abs(proj_ms(1:2:end,2)./proj_ms(1:2:end,1))];
-        lower_ms=[lower_ms, -abs(proj_ms(2:2:end,2)./proj_ms(2:2:end,1))];
-        
+%     if i>1
+%         proj_ms=[projection(F_ms{i},[1]).H ; projection(F_ms{i},[2]).H ; projection(F_ms{i},[3]).H ; projection(F_ms{i},[4]).H];
+%         upper_ms=[upper_ms, abs(proj_ms(1:2:end,2)./proj_ms(1:2:end,1))];
+%         lower_ms=[lower_ms, -abs(proj_ms(2:2:end,2)./proj_ms(2:2:end,1))];
+     
+% % For the true model we actually don't need robust MPC now
 %         proj_true=[projection(F_true{i},[1]).H ; projection(F_true{i},[2]).H ; projection(F_true{i},[3]).H ; projection(F_true{i},[4]).H];
 %         upper_true=[upper_true, abs(proj_true(1:2:end,2)./proj_true(1:2:end,1))];
 %         lower_true=[lower_true, -abs(proj_true(2:2:end,2)./proj_true(2:2:end,1))];
-    end
+%     end
     if see_progress
         waitbar(i/H, progressbar, sprintf('Dist. reachable set Progress: %d %%', floor(i/H*100))); % Update progress bar
     end
 end
 if see_progress close(progressbar); end
 
-figure
-for k =1:nx
-    subplot(4,2,k*2-1);fill([1:H, fliplr(1:H)],[lower_ms(k,:), fliplr(upper_ms(k,:))],'g');
-    if k==1 title("Disturb. reach. sets M.S"); end
-    ylabel(char(mdls.xflr_uw.sys.StateName(k)));
-end
+% figure
+% for k =1:nx
+%     subplot(4,2,k*2-1);fill([1:H, fliplr(1:H)],[lower_ms(k,:), fliplr(upper_ms(k,:))],'g');
+%     if k==1 title("Disturb. reach. sets M.S"); end
+%     ylabel(char(mdls.xflr_uw.sys.StateName(k)));
+% end
 % for k =1:nx
 %     subplot(4,2,k*2);fill([1:H, fliplr(1:H)],[lower_true(k,:), fliplr(upper_true(k,:))],'g');
 %     if k==1 title("Disturb. reach. sets true"); end
@@ -550,26 +558,29 @@ for t = 1:opt_steps
 end
 if see_progress close(progressbar); end
 
+time = 0:dt:opt_steps*dt;
 figure
 for k=1:nx
-    subplot(4,2,2*k-1);plot(X_ms(k,:));hold on;ylabel(char(mdls.xflr_uw.sys.StateName(k)));
+    subplot(4,2,2*k-1); plot(time, X_ms(k,:)); hold on; ylabel(char(mdls.xflr_uw.sys.StateName(k)));
     if k==1 title("MPC M.S constr. satisf."); end
-    plot(1:opt_steps,h_x(k)*ones(opt_steps,1),"--");hold on;plot(1:opt_steps,-h_x(k+4)*ones(opt_steps,1),"--")
+    plot(time,h_x(k)*ones(opt_steps+1,1),"--"); hold on;
+    plot(time,-h_x(k+4)*ones(opt_steps+1,1),"--");
 end
 for k=1:nx
-    subplot(4,2,2*k);plot(X_true(k,:));hold on;ylabel(char(mdls.xflr_uw.sys.StateName(k)));
+    subplot(4,2,2*k); plot(time, X_true(k,:)); hold on; ylabel(char(mdls.xflr_uw.sys.StateName(k)));
     if k==1 title("MPC true model constr. satisf."); end
-    plot(1:opt_steps,h_x(k)*ones(opt_steps,1),"--");hold on;plot(1:opt_steps,-h_x(k+4)*ones(opt_steps,1),"--")
+    plot(time,h_x(k)*ones(opt_steps+1,1),"--"); hold on; 
+    plot(time,-h_x(k+4)*ones(opt_steps+1,1),"--")
 end
 
 figure
 for it_s = 1:size(s,1)
     subplot(2+size(s,1),1,it_s)
-    plot(X_true(s(it_s),1:end),"r")
+    plot(time, X_true(s(it_s),1:end),"r")
     hold on
-    plot(X_ms(s(it_s),1:end),"g")
+    plot(time, X_ms(s(it_s),1:end),"g")
     hold on
-    plot(ref(it_s,:),"k")
+    plot(time, ref(it_s, 1:opt_steps+1),"k")
     legend(["True","M.S","ref."])
     ylabel(char(mdls.xflr_uw.sys.StateName(s(it_s))))
 end
@@ -577,17 +588,17 @@ end
 obj_true=sum((X_true(s,:)-ref(:,1:size(X_true,2))).^2,1);
 obj_ms=sum((X_ms(s,:)-ref(:,1:size(X_ms,2))).^2,1);
 subplot(2+size(s,1),1,size(s,1)+1)
-plot(obj_true,"r")
+plot(time, obj_true,"r")
 hold on
-plot(obj_ms,"g")
+plot(time, obj_ms,"g")
 legend(["True","M.S"])
 title("Objective function evaluation")
 
 subplot(2+size(s,1),1,size(s,1)+2)
 cs_true=cumsum(obj_true);
 cs_ms=cumsum(obj_ms);
-plot(cs_true,"r")
+plot(time, cs_true,"r")
 hold on
-plot(cs_ms,"g")
+plot(time, cs_ms,"g")
 legend(["True: "+cs_true(end),"M.S: "+cs_ms(end)])
 title("Cumulative objective function evaluation")
