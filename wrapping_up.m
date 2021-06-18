@@ -431,12 +431,12 @@ see_progress=true; %show progress bar
 
 % Set up reference
 ref_q = [repmat(deg2rad(0),1,40)];
-ref_amplitude = deg2rad(5);
-ref_freq = 4;  % in Hz
+ref_amplitude = deg2rad(70);
+ref_freq = 2;  % in Hz
 ref_endtime = 1;    % in s
 ref_theta = repmat(ref_amplitude,1,100);     % Step from trim value to new theta
 ref_theta = x_trim(4)-0.5*ref_amplitude + 0.5*ref_amplitude* square(2*pi*ref_freq*(0:dt:ref_endtime));      % Square wave reference
-% ref_theta = x_trim(4)-0.5*ref_amplitude + 0.5*ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
+ref_theta = x_trim(4)-0.5*ref_amplitude + 0.5*ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
 ref=[ref_theta];
 s=[4]; %state(s) to control in concordance with ref order (in this case applying only theta control)
 H=5; % MPC horizon
@@ -517,12 +517,14 @@ X_set=Polyhedron(H_x,h_x);
 %with membership model
 x0=x_trim;
 X_ms=x0;
+U_MPC_ms=[];
 if see_progress progressbar= waitbar(0, 'Starting'); end
 for t = 1:opt_steps
     [U,X,u]=MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_set,K_ms);
 %     x0=A_true*x0+B_true*u;
     x0 = sim.simulate_one_step(x0, u);
     X_ms=cat(2,X_ms,x0);
+    U_MPC_ms=cat(2,U_MPC_ms,u);
     if isnan(u)
         fprintf('\nMPC with est. model infeasible');
         break
@@ -536,12 +538,14 @@ if see_progress close(progressbar); end
 %with linearized model
 x0=x_trim;
 X_true=x0;
+U_MPC_true=[];
 if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
 for t = 1:opt_steps
     [U,X,u]=MPC_tight(A_true,B_true,x0,ref(:,t:end),s,H,F_true,X_set,K_true);
 %     x0=A_true*x0+B_true*u;
     x0 = sim.simulate_one_step(x0, u);
     X_true=cat(2,X_true,x0);
+    U_MPC_true=cat(2,U_MPC_true,u);
     if isnan(u)
         fprintf('\nMPC with true model infeasible');
         break
