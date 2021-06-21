@@ -431,12 +431,12 @@ see_progress=true; %show progress bar
 
 % Set up reference
 ref_q = [repmat(deg2rad(0),1,40)];
-ref_amplitude = deg2rad(70);
-ref_freq = 2;  % in Hz
-ref_endtime = 1;    % in s
+ref_amplitude = deg2rad(20);
+ref_freq = 1/4;  % in Hz
+ref_endtime = 8;    % in s
 ref_theta = repmat(ref_amplitude,1,100);     % Step from trim value to new theta
-ref_theta = x_trim(4)-0.5*ref_amplitude + 0.5*ref_amplitude* square(2*pi*ref_freq*(0:dt:ref_endtime));      % Square wave reference
-ref_theta = x_trim(4)-0.5*ref_amplitude + 0.5*ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
+ref_theta = x_trim(4)-ref_amplitude + ref_amplitude* square(2*pi*ref_freq*(0:dt:ref_endtime));      % Square wave reference
+ref_theta = x_trim(4)-ref_amplitude + ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
 ref=[ref_theta];
 s=[4]; %state(s) to control in concordance with ref order (in this case applying only theta control)
 H=5; % MPC horizon
@@ -510,9 +510,16 @@ end
 H_x=[eye(nx);-eye(nx)];
 % h_x=[13.5 ; 0 ; .4 ; .2; 
 %      -12 ; 3 ; .4 ; .2];
-h_x = [25; 5; 10; deg2rad(70);       
-       -5; 5; 10; deg2rad(70)]; 
+h_x = [40; 10; 10; deg2rad(70);       
+       -5; 10; 10; deg2rad(70)]; 
+
 X_set=Polyhedron(H_x,h_x);
+for i=1:H
+    X_t_ms{i+1} = X_set - F_ms{i+1};
+    X_t_true{i+1} = X_set;
+    X_t_ms{i+1}=X_t_ms{i+1}.minHRep;
+    X_t_true{i+1}=X_t_true{i+1}.minHRep;
+end
 
 %with membership model
 x0=x_trim;
@@ -520,7 +527,7 @@ X_ms=x0;
 U_MPC_ms=[];
 if see_progress progressbar= waitbar(0, 'Starting'); end
 for t = 1:opt_steps
-    [U,X,u]=MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_set,K_ms);
+    [U,X,u]=MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_t_ms,K_ms);
 %     x0=A_true*x0+B_true*u;
     x0 = sim.simulate_one_step(x0, u);
     X_ms=cat(2,X_ms,x0);
@@ -541,7 +548,7 @@ X_true=x0;
 U_MPC_true=[];
 if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
 for t = 1:opt_steps
-    [U,X,u]=MPC_tight(A_true,B_true,x0,ref(:,t:end),s,H,F_true,X_set,K_true);
+    [U,X,u]=MPC_tight(A_true,B_true,x0,ref(:,t:end),s,H,F_true,X_t_true,K_true);
 %     x0=A_true*x0+B_true*u;
     x0 = sim.simulate_one_step(x0, u);
     X_true=cat(2,X_true,x0);
@@ -556,17 +563,20 @@ for t = 1:opt_steps
 end
 if see_progress close(progressbar); end
 
+%%
+time_ms = 0:dt:(size(X_ms,2)-1)*dt;
+time_true = 0:dt:(size(X_true,2)-1)*dt;
 time = 0:dt:opt_steps*dt;
 figure
 for k=1:nx
-    subplot(4,2,2*k-1); plot(time, X_ms(k,:)); hold on; ylabel(char(mdls.xflr_uw.sys.StateName(k)));
+    subplot(4,2,2*k-1); plot(time_ms, X_ms(k,:)); hold on; ylabel(char(mdls.xflr_uw.sys.StateName(k)));
     if k==1 title("MPC M.S constr. satisf."); end
     plot(time,h_x(k)*ones(opt_steps+1,1),"--"); hold on;
     plot(time,-h_x(k+4)*ones(opt_steps+1,1),"--");
     xlabel('time in s');
 end
 for k=1:nx
-    subplot(4,2,2*k); plot(time, X_true(k,:)); hold on; ylabel(char(mdls.xflr_uw.sys.StateName(k)));
+    subplot(4,2,2*k); plot(time_true, X_true(k,:)); hold on; ylabel(char(mdls.xflr_uw.sys.StateName(k)));
     if k==1 title("MPC true model constr. satisf."); end
     plot(time,h_x(k)*ones(opt_steps+1,1),"--"); hold on; 
     plot(time,-h_x(k+4)*ones(opt_steps+1,1),"--")
@@ -576,9 +586,9 @@ end
 figure
 for it_s = 1:size(s,1)
     subplot(2+size(s,1),1,it_s)
-    plot(time, X_true(s(it_s),1:end),"r")
+    plot(time_true, X_true(s(it_s),1:end),"r")
     hold on
-    plot(time, X_ms(s(it_s),1:end),"g")
+    plot(time_ms, X_ms(s(it_s),1:end),"g")
     hold on
     plot(time, ref(it_s, 1:opt_steps+1),"k")
     legend(["True","M.S","ref."])

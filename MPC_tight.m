@@ -1,4 +1,4 @@
-function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_set, K)
+function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_t, K)
     
     sx=4; %num. states
     su=1; %num. inputs
@@ -14,12 +14,13 @@ function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_set, K)
         for it_s = 1:size(s,1)
             objective_MPC=objective_MPC   +   (x_i(s(it_s),i)-ref(it_s,i))^2;
         end
+        objective_MPC = objective_MPC + 1e-03*u_i(1,i);
         % State Propagation Constraints
         constraints_MPC=[constraints_MPC, x_i(:,i+1) == A*x_i(:,i)+B*u_i(:,i)];
         
         % State & Input Constraints
 %         constraints_MPC=[constraints_MPC, x_i(1,i+1) >= 0]; %Va (velocity norm) major to zero always
-        % constraints_MPC=[constraints_MPC, deg2rad(-30) <= u_i(1,i) <= deg2rad(30)]; % Elevator deflection is limited by +-30 deg
+%         constraints_MPC=[constraints_MPC, deg2rad(-30) <= u_i(1,i) <= deg2rad(30)]; % Elevator deflection is limited by +-30 deg
         U_set = Polyhedron([1;-1], [deg2rad(50); deg2rad(50)]);     % Elevator deflection is limited by +-50 deg
         if(K==0)
             U_t{i} = U_set;
@@ -29,11 +30,14 @@ function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_set, K)
         end
 
         constraints_MPC=[constraints_MPC, U_t{i}.A * u_i(:,i) <= U_t{i}.b]; 
-        X_t{i+1} = X_set - F{i+1};
-        X_t{i+1}=X_t{i+1}.minHRep;
+%         X_t{i+1} = X_set - F{i+1};
+%         X_t{i+1}=X_t{i+1}.minHRep;
         constraints_MPC=[constraints_MPC, X_t{i+1}.A * x_i(:,i+1) <= X_t{i+1}.b];
     end
     ops = sdpsettings('verbose',1,'solver','sedumi');
+%     ops = sdpsettings('verbose',1);
+
+    
     obj.optimizer=optimizer(constraints_MPC, objective_MPC, ops, {x_0}, {u_i,x_i});
     [sol, flag] = obj.optimizer(x_ini);
     U = sol{1};
