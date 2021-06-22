@@ -23,10 +23,8 @@ dyn_func = @dyn_func_theta; % ## USER ## Select (same) nonlinear model
 % Create sim for model
 dt = 0.01; % Simulation discretization
 process_noise_abs = [1 0.5 3 0] * dt; % Maximum value of absolute process noise
-sim = SimulatorClass(dyn_func, mdl, dt, process_noise_abs); 
+sim = SimulatorClass(dyn_func, mdl, dt, process_noise_abs);
 
-disp('Ac_true = '), disp(sim.Ac)
-disp('Bc_true = '), disp(sim.Bc)
 clear dt process_noise_abs
 
 % Simulate
@@ -103,11 +101,12 @@ T = T(1:end-1);
 
 dt = T(2) - T(1);
 
+% Simulate with best nonlinear model and plot mismatch with data
 sim = SimulatorClass(dyn_func, mdl, dt);
-sim.simulate_all(T, X(1,:)', U(:,1)'); %% How to plot simulated against ground truth?
-sim.plotStateTrajectory(X');
+sim.simulate_all(T, X(1,:)', U(:,1)');
+%sim.plotStateTrajectory(X');
 
-data.real.data = table(T, U, X, XP); 
+data.real.data = table(T, U, X, XP);
 data.real.dt = dt;
 data.real.nx = size(X, 2);
 data.real.nu = size(U, 2);
@@ -146,14 +145,14 @@ JB = logical([ % u = [elev  (throttle)]
     0]);       % 0
 
 J = [JA JB];
-smConfig.np = sum(J(:)); 
+smConfig.np = sum(J(:));
 smConfig.idxJ = find(J); clear J
 
 % Initial guess for dynamics: XFLR model - but only uncertain values chosen in JA and JB
 model0 = mdls.pitch;
 
 % Select data for estimation
-identData = data.real;
+identData = data.lin;
 
 % For simulation-generated data, artificially worsen the initial guess
 model0.x_trim = mdls.xflr_pitch.x_trim;
@@ -175,7 +174,7 @@ smData.AB0 = [smData.A0 smData.B0]; clear Ac0 Bc0 A0 B0
 disp('AB0 = '), disp(smData.AB0)
 
 % Simulate and plot initial model over ground truth
-X_init = sim.simulate_linear_discr(smData.A0, smData.B0, model0.x_trim, model0.u_trim(1), identData.data.X(1,:)', identData.data.U(:,1)'); 
+X_init = sim.simulate_linear_discr(smData.A0, smData.B0, model0.x_trim, model0.u_trim(1), identData.data.X(1,:)', identData.data.U(:,1)');
 
 % Prepare set membership
 smData.ABi = zeros([size(smData.AB0) smConfig.np]);
@@ -217,18 +216,18 @@ smData.setD = cell(1, smConfig.nSteps+1);
 
 % Define additive polytopic uncertainty description
 smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X - model0.x_trim', identData.data.U - model0.u_trim(1)']' - model0.x_trim;
-smData.w_max = 1.1 * max(abs(smData.DW), [], 2);
-%w_max = 0.1 * ones(nx, 1); %0.041;
+smData.w_bound = max(abs(smData.DW), [], 2);
+smData.w_highest = 1.5 * smData.w_bound;
+smData.w_lowest = 0.5 * smData.w_bound;
 
-plotHandles.f1 = figure; smData.iterations = 0; smData.w_maxes = [];
+plotHandles.f1 = figure; smData.iterations = 0; smData.w_bounds = [];
 clear dTheta_final_bounds_last
 
 %%
-smConfig.recursive_estimation = false;
-smConfig.estimate_based_W = false;
+smConfig.recursive_estimation = true;
 
-smConfig.term_crit = 1; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
-        
+smConfig.term_crit = 5; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
+
 if exist('dTheta_final_bounds_last', 'var'), fprintf('Warmstarting'); end
 
 while (true)
@@ -238,28 +237,25 @@ while (true)
     smData.dTheta_bounds(1,:) = Hh_theta(logical(repmat(eye(smConfig.np),2,1))); clear Hh_theta
     
     % Define disturbance bounds
-    if smConfig.estimate_based_W
-        smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X - model0.x_trim', identData.data.U - model0.u_trim(1)']' - model0.x_trim;
-        smData.w_max = 1.1 * max(abs(smData.DW), [], 2);
-    end
     Hw = [eye(sim.nx); -eye(sim.nx)];
-    hw = repmat(smData.w_max, 2, 1);
+    smData.w_bound = (smData.w_lowest + smData.w_highest)/2;
+    hw = repmat(smData.w_bound, 2, 1);
     smData.W = Polyhedron(Hw, hw); clear Hw hw
     
     % Instantiate set membership estimator
     sm = SetMembership(smData.Omega{1}, smData.W, smData.ABi, smData.AB0);
     
     % Keep track of w_max evolution
-    smData.w_maxes = [smData.w_maxes smData.w_max]; 
-    if size(smData.w_maxes,2)-1 > smData.iterations(end), smData.iterations = [smData.iterations smData.iterations(end)+1]; end
+    smData.w_bounds = [smData.w_bounds smData.w_bound];
+    if size(smData.w_bounds,2) - 1 > smData.iterations(end), smData.iterations = [smData.iterations smData.iterations(end)+1]; end
     set(0, 'currentfigure', plotHandles.f1);
-    subplot(length(smData.w_max), 1, 1); plot(smData.iterations, smData.w_maxes(1,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on, title('w\_{max}')
-    subplot(length(smData.w_max), 1, 2); plot(smData.iterations, smData.w_maxes(2,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on
-    subplot(length(smData.w_max), 1, 3); plot(smData.iterations, smData.w_maxes(3,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on
-    subplot(length(smData.w_max), 1, 4); plot(smData.iterations, smData.w_maxes(4,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on, drawnow
-
-   
-    fprintf(['\nStarting SM estimation with w_max = ' num2str(smData.w_max')]); tic;    
+    subplot(length(smData.w_bound), 1, 1); plot(smData.iterations, smData.w_bounds(1,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on, title('w\_{max}')
+    subplot(length(smData.w_bound), 1, 2); plot(smData.iterations, smData.w_bounds(2,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on
+    subplot(length(smData.w_bound), 1, 3); plot(smData.iterations, smData.w_bounds(3,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on
+    subplot(length(smData.w_bound), 1, 4); plot(smData.iterations, smData.w_bounds(4,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on, drawnow
+    
+    
+    fprintf('\nRunning SM estimation...'); tic;
     if smConfig.recursive_estimation
         % Estimate recursively, sample by sample
         iPlot = 1;
@@ -267,18 +263,12 @@ while (true)
             iSample = smConfig.dataIdx(iStep);
             
             % update set membership
-            [smData.Omega{iStep+1}, smData.setD{iStep+1}] = sm.update(identData.data.XP(iSample,:)', identData.data.X(iSample,:)', identData.data.U(iSample,:)');    
+            [smData.Omega{iStep+1}, smData.setD{iStep+1}] = sm.update(identData.data.XP(iSample,:)', identData.data.X(iSample,:)', identData.data.U(iSample,:)');
             
             if smData.Omega{iStep+1}.isEmptySet
-                if smConfig.estimate_based_W
-                    AB_ms = sm.get_AB(); % Save current AB estimate
-                    modify_W_str = 'iterate';
-                else
-                    % Restart estimation with larger W
-                    smData.w_max = 1.1 * smData.w_max;
-                    modify_W_str = 'enlarge';
-                end
-                fprintf([' -- Step ' num2str(iStep) '/' num2str(smConfig.nSteps) ': Empty set, ' modify_W_str ' disturbance set W.']);
+                % Restart estimation with larger W
+                smData.w_lowest = max(smData.w_lowest, smData.w_bound);
+                fprintf([' -- Step ' num2str(iStep) '/' num2str(smConfig.nSteps) ': Empty set, enlarge disturbance set W.']);
                 break;
             end
             
@@ -305,20 +295,14 @@ while (true)
         % Estimate from all samples in one step
         smData.Omega{smConfig.nSteps+1} = sm.update(identData.data.XP', identData.data.X', identData.data.U');
         if smData.Omega{smConfig.nSteps+1}.isEmptySet
-            if smConfig.estimate_based_W
-                smData.AB_ms = sm.get_AB(); % Save current AB estimate
-                modify_W_str = 'iterate';
-            else
-                % Restart estimation with shrinked W
-                smData.w_max = 1.1 * smData.w_max;
-                modify_W_str = 'enlarge';
-            end
-            fprintf(['\nEmpty set, ' modify_W_str ' disturbance set W.']);
+            % Restart estimation with shrinked W
+            smData.w_lowest = max(smData.w_lowest, smData.w_bound);
+            fprintf('\nEmpty set, enlarge disturbance set W.');
             continue
         else
             smData.dTheta_hat(smConfig.nSteps+1, :) = sm.theta_hat';         % estimate parameter (center of the estimated set)
             smData.dTheta_hat(:,:) = interp1([1 2],[smData.dTheta_hat(1,:); smData.dTheta_hat(end,:)], linspace(1, 2, smConfig.nSteps+1));
-
+            
             smData.dTheta_bounds(smConfig.nSteps+1, :) = sm.theta_bounds';
             smData.dTheta_bounds(:,:) = interp1([1 2],[smData.dTheta_bounds(1,:); smData.dTheta_bounds(end,:)], linspace(1, 2, smConfig.nSteps+1));
             
@@ -329,14 +313,8 @@ while (true)
     if iStep == smConfig.nSteps % Estimation completed, i.e., all samples used (either recursively or at once)
         smData.AB_ms = sm.get_AB(); % Save current AB estimate
         % Prepare restart of estimation with updated W (warmstart)
-        if smConfig.estimate_based_W
-            modify_W_str = 'Iterate';
-        else
-            % Restart estimation with shrinked W
-            smData.w_max = 0.9 * smData.w_max;
-            modify_W_str = 'Tighten';
-        end
-        %break; % Run only once
+        % Restart estimation with shrinked W
+        smData.w_highest = min(smData.w_highest, smData.w_bound);
         
         if exist('dTheta_final_bounds_last', 'var')
             % Previous result is available for comparison
@@ -346,27 +324,21 @@ while (true)
             dTheta_final_bounds_last_size = abs(diff(reshape(dTheta_final_bounds_last, 2, smConfig.np)));
             
             % Change in that range w.r.t. to previous complete estimation
-            dTheta_final_bounds_size_diff  = dTheta_final_bounds_last_size - dTheta_final_bounds_size;
-            if all(dTheta_final_bounds_size_diff >= -0.1)
-                % There was an improvement
-                if all(dTheta_final_bounds_size_diff < smConfig.term_crit)
-                    % Improvement is small enough to stop
-                    fprintf(['\n ==== \nEstimation complete (' num2str(round(toc,1)) 's). dTheta_bounds span < termination criterion ' num2str(smConfig.term_crit) ', w_max = ' num2str(smData.w_max') '.' ...
-                        '\nFor more accurate estimation, run section again and/or decrease term_crit.\n\n']);
-                    clear id du dx dxp iStep
-                    dTheta_final_bounds_last = smData.dTheta_bounds(end,:);
-                    break
-                end
-            else
-                % There was worsening -> Go again
-                
+            dTheta_final_bounds_size_diff = dTheta_final_bounds_last_size - dTheta_final_bounds_size;
+            if all(abs(dTheta_final_bounds_size_diff) >= -0.1) && ... % There was an improvement &&
+                    all(dTheta_final_bounds_size_diff < smConfig.term_crit) % Improvement is small enough to stop
+                fprintf(['\nEstimation complete (' num2str(round(toc,1)) 's). dTheta_bounds span < termination criterion ' num2str(smConfig.term_crit) '.' ...
+                    '\nFor more accurate estimation, run section again and/or decrease term_crit.\n ==========\n']);
+                clear id du dx dxp iStep
+                dTheta_final_bounds_last = smData.dTheta_bounds(end,:);
+                break
             end
         end
-        fprintf(['\nAll samples used (' num2str(round(toc,1)) 's). ' modify_W_str ' disturbance set W.\n ----']); 
+        fprintf([' -- All samples used (' num2str(round(toc,1)) 's). Tighten disturbance set W.\n ----------']);
         dTheta_final_bounds_last = smData.dTheta_bounds(end,:);
     end
 end
-clear modify_W_str dTheta_final_bounds_size dTheta_final_bounds_last_size dTheta_final_bounds_size_diff
+clear dTheta_final_bounds_size dTheta_final_bounds_last_size dTheta_final_bounds_size_diff
 
 % Set-Membership estimated system
 AB_ms = smData.AB_ms
