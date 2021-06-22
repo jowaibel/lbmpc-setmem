@@ -249,7 +249,7 @@ while (true)
     smData.w_bounds = [smData.w_bounds smData.w_bound];
     if size(smData.w_bounds,2) - 1 > smData.iterations(end), smData.iterations = [smData.iterations smData.iterations(end)+1]; end
     set(0, 'currentfigure', plotHandles.f1);
-    subplot(length(smData.w_bound), 1, 1); plot(smData.iterations, smData.w_bounds(1,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on, title('w\_{max}')
+    subplot(length(smData.w_bound), 1, 1); plot(smData.iterations, smData.w_bounds(1,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on, title('w\_{bound}')
     subplot(length(smData.w_bound), 1, 2); plot(smData.iterations, smData.w_bounds(2,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on
     subplot(length(smData.w_bound), 1, 3); plot(smData.iterations, smData.w_bounds(3,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on
     subplot(length(smData.w_bound), 1, 4); plot(smData.iterations, smData.w_bounds(4,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on, drawnow
