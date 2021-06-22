@@ -216,7 +216,7 @@ smData.setD = cell(1, smConfig.nSteps+1);
 
 % Define additive polytopic uncertainty description
 smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X - model0.x_trim', identData.data.U - model0.u_trim(1)']' - model0.x_trim;
-smData.w_bound = max(abs(smData.DW), [], 2);
+smData.w_bound = 1.1 * max(abs(smData.DW), [], 2);
 smData.w_highest = 1.5 * smData.w_bound;
 smData.w_lowest = 0.5 * smData.w_bound;
 
@@ -224,7 +224,7 @@ plotHandles.f1 = figure; smData.iterations = 0; smData.w_bounds = [];
 clear dTheta_final_bounds_last
 
 %%
-smConfig.recursive_estimation = true;
+smConfig.recursive_estimation = false;
 
 smConfig.term_crit = 5; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
 
@@ -263,7 +263,7 @@ while (true)
             iSample = smConfig.dataIdx(iStep);
             
             % update set membership
-            [smData.Omega{iStep+1}, smData.setD{iStep+1}] = sm.update(identData.data.XP(iSample,:)', identData.data.X(iSample,:)', identData.data.U(iSample,:)');
+            [smData.Omega{iStep+1}, smData.setD{iStep+1}] = sm.update(identData.data.XP(iSample,:)' - model0.x_trim, identData.data.X(iSample,:)' - model0.x_trim, identData.data.U(iSample,:)' - model0.u_trim(1));
             
             if smData.Omega{iStep+1}.isEmptySet
                 % Restart estimation with larger W
@@ -293,7 +293,7 @@ while (true)
         end
     else
         % Estimate from all samples in one step
-        smData.Omega{smConfig.nSteps+1} = sm.update(identData.data.XP', identData.data.X', identData.data.U');
+        smData.Omega{smConfig.nSteps+1} = sm.update(identData.data.XP' - model0.x_trim, identData.data.X' - model0.x_trim, identData.data.U(:,1)' - model0.u_trim(1));
         if smData.Omega{smConfig.nSteps+1}.isEmptySet
             % Restart estimation with shrinked W
             smData.w_lowest = max(smData.w_lowest, smData.w_bound);
