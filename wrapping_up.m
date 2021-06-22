@@ -115,10 +115,6 @@ data.real.nSamples = length(data.real.data.X);
 clear T U X XP dt resampledStateSeqs resampledControlSeqs seqToUse process_noise_abs
 clear dyn_func
 
-% data.real = data.real(cutIdx,:);
-% nSamples_real = size(data.real.X, 1);
-% ------------------------------------------------------------------------
-
 %% Configure set membership estimation
 
 % Initial guess for dynamics: XFLR model
