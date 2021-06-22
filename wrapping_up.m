@@ -133,6 +133,18 @@ JB = logical([ % u = [elev  (throttle)]
     1;         % Z_el/V0
     1;         % M_el
     0]);       % 0
+
+JA = logical([ % x = [V(a) a(lpha) q theta].
+    0 0 0 0;   % X_V      X_a       0      -g
+    0 1 0 0;   % Z_V/V0   Z_a/V0    1      0
+    0 1 1 0;   % M_V      M_a       M_q    0
+    0 0 0 0]); % 0        0         1      0
+JB = logical([ % u = [elev  (throttle)]
+    0;         % X_el
+    1;         % Z_el/V0
+    1;         % M_el
+    0]);       % 0
+
 J = [JA JB];
 smConfig.np = sum(J(:)); 
 smConfig.idxJ = find(J); clear J
@@ -204,7 +216,7 @@ smData.dTheta_bounds = zeros(smConfig.nSteps+1, 2*smConfig.np);
 smData.setD = cell(1, smConfig.nSteps+1);
 
 % Define additive polytopic uncertainty description
-smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X, identData.data.U]';
+smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X - model0.x_trim', identData.data.U - model0.u_trim(1)']' - model0.x_trim;
 smData.w_max = 1.1 * max(abs(smData.DW), [], 2);
 %w_max = 0.1 * ones(nx, 1); %0.041;
 
@@ -213,9 +225,9 @@ clear dTheta_final_bounds_last
 
 %%
 smConfig.recursive_estimation = false;
-smConfig.estimate_based_W = true;
+smConfig.estimate_based_W = false;
 
-smConfig.term_crit = 15; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
+smConfig.term_crit = 1; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
         
 if exist('dTheta_final_bounds_last', 'var'), fprintf('Warmstarting'); end
 
@@ -227,7 +239,7 @@ while (true)
     
     % Define disturbance bounds
     if smConfig.estimate_based_W
-        smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X, identData.data.U]';
+        smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X - model0.x_trim', identData.data.U - model0.u_trim(1)']' - model0.x_trim;
         smData.w_max = 1.1 * max(abs(smData.DW), [], 2);
     end
     Hw = [eye(sim.nx); -eye(sim.nx)];
