@@ -152,7 +152,7 @@ smConfig.idxJ = find(J); clear J
 model0 = mdls.pitch;
 
 % Select data for estimation
-identData = data.lin;
+identData = data.real;
 
 % For simulation-generated data, artificially worsen the initial guess
 model0.x_trim = mdls.xflr_pitch.x_trim;
