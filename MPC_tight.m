@@ -1,4 +1,4 @@
-function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_t, K)
+function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_t, K, u_old)
     
     sx=4; %num. states
     su=1; %num. inputs
@@ -14,7 +14,8 @@ function [U,X,u] = MPC_tight(A,B,x_ini,ref,s,H,F,X_t, K)
         for it_s = 1:size(s,1)
             objective_MPC=objective_MPC   +   (x_i(s(it_s),i)-ref(it_s,i))^2;
         end
-        objective_MPC = objective_MPC + 1e-03*u_i(1,i);
+%         objective_MPC = objective_MPC + 1e-01*u_i(1,i);
+        objective_MPC = objective_MPC + 1e-02*(u_old-u_i(1,i))^2;
         % State Propagation Constraints
         constraints_MPC=[constraints_MPC, x_i(:,i+1) == A*x_i(:,i)+B*u_i(:,i)];
         

@@ -525,9 +525,10 @@ end
 x0=x_trim;
 X_ms=x0;
 U_MPC_ms=[];
+u_old = 0;
 if see_progress progressbar= waitbar(0, 'Starting'); end
 for t = 1:opt_steps
-    [U,X,u]=MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_t_ms,K_ms);
+    [U,X,u]=MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_t_ms,K_ms, u_old);
 %     x0=A_true*x0+B_true*u;
     x0 = sim.simulate_one_step(x0, u);
     X_ms=cat(2,X_ms,x0);
@@ -539,6 +540,7 @@ for t = 1:opt_steps
     if see_progress
         waitbar(t/opt_steps, progressbar, sprintf('M.S model MPC Progress: %d %%', floor(t/opt_steps*100))); % Update progress bar
     end
+    u_old = u;
 end
 if see_progress close(progressbar); end
 
@@ -546,9 +548,10 @@ if see_progress close(progressbar); end
 x0=x_trim;
 X_true=x0;
 U_MPC_true=[];
+u_old = 0;
 if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
 for t = 1:opt_steps
-    [U,X,u]=MPC_tight(A_true,B_true,x0,ref(:,t:end),s,H,F_true,X_t_true,K_true);
+    [U,X,u]=MPC_tight(A_true,B_true,x0,ref(:,t:end),s,H,F_true,X_t_true,K_true, u_old);
 %     x0=A_true*x0+B_true*u;
     x0 = sim.simulate_one_step(x0, u);
     X_true=cat(2,X_true,x0);
@@ -560,6 +563,7 @@ for t = 1:opt_steps
     if see_progress
         waitbar(t/opt_steps, progressbar, sprintf('True model MPC Progress: %d %%', floor(t/opt_steps*100))); % Update progress bar
     end
+    u_old = u;
 end
 if see_progress close(progressbar); end
 
@@ -615,3 +619,7 @@ plot(time, cs_ms,"g")
 legend(["True: "+cs_true(end),"M.S: "+cs_ms(end)])
 title("Cumulative objective function evaluation")
 xlabel('time in s');
+
+figure;
+plot(time(1:end-1), U_MPC_ms, '-', time(1:end-1), U_MPC_true, '--');
+legend('M.S', 'True');
