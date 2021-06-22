@@ -4,14 +4,22 @@ classdef SimulatorClass < handle
         nx, nu
         dyn_func
         mdl
-        Ac, Bc, x_trim, u_trim, Ad, Bd, Ade, Bde, A0, B0, A_ms, B_ms
-        time, state_traj, lin_state_traj, lin_dyn_traj, lind_state_traj, linde_state_traj
-        lin_init_state_traj, lin_ms_state_traj
+        x_trim, u_trim
+        time
+        Ac, Bc              % continuous system matrices
+        Ad, Bd              % discrete system matrices Ade, Bde
+        Ade, Bde
+        nonlin_state_traj   % state trajectory from nonlinear continuous simulation
+        linc_state_traj     % state trajectory from linear continuous simulation
+        linc_dyn_traj       % dynamics trajectory from linear continuous simulation
+        lind_state_traj     % state trajectory from linear discrete simulation
+        linde_state_traj    % state trajectory from linear discrete (exact) simulation
         process_noise_abs
     end
     
     methods
         function obj = SimulatorClass(nonlin_dyn_func, lin_mdl, dt, process_noise_abs)
+            
             obj.dt = dt;
             obj.x_trim = lin_mdl.x_trim; obj.nx = length(obj.x_trim);
             obj.u_trim = lin_mdl.u_trim; obj.nu = length(obj.u_trim);
@@ -34,145 +42,179 @@ classdef SimulatorClass < handle
             obj.Ade = F(1:obj.nx, 1:obj.nx);     % Exact discretization
             obj.Bde = F(1:obj.nx, obj.nx+1:end); % Exact discretization
             
+            if nargin < 4
+                process_noise_abs = zeros(obj.nx, 1);
+            end
             obj.process_noise_abs = process_noise_abs;
         end
-        
-        function obj = addModels(obj, AB0, AB_ms)
-           obj.A0 = AB0(:,1:obj.nx);                % initial guess (discrete)
-           obj.B0 = AB0(:,obj.nx+1:obj.nx+obj.nu);
-           obj.A_ms = AB_ms(:,1:obj.nx);              % estimated system (discrete)
-           obj.B_ms = AB_ms(:,obj.nx+1:obj.nx+obj.nu);
-            
-        end
-        
-        function [x] = simulate_one_step(obj, x0, u)
-            % Sim nonlinear system one step
-            [~, X_] = ode45( @(t_, x_) obj.dyn_func(x_, u), [0 obj.dt/2 obj.dt], x0);
+
+        % Steppers for nonlinear / linear cont. / linear discr, dynamics
+        function [x] = simulate_nonlinear_step(obj, dyn_func, x0, u, dt)
+            % Sim nonlinear system for dt
+            [~, X_] = ode45( @(t_, x_) dyn_func(x_, u), [0 dt/2 dt], x0);
             x = X_(end,:)';
         end
-        function [xl, dxl] = simulate_one_step_lin(obj, x0, u)
-            % Sim linear system one step
-            [~, Xl_] = ode45( @(t_, x_) obj.Ac*(x_-obj.x_trim)+ obj.Bc*(u-obj.u_trim), [0 obj.dt/2 obj.dt], x0);
+        
+        function [xl, dxl] = simulate_lin_cont_step(obj, Ac, Bc, x_trim, u_trim, x0, u, dt)
+            % Sim linear system for dt
+            dyn_func = @(t_, x_) Ac * (x_ - x_trim) + Bc * (u - u_trim);
+
+            [~, Xl_] = ode45(dyn_func, [0 dt/2 dt], x0);
             xl = Xl_(end,:)';
-            dxl = obj.Ac*(x0-obj.x_trim) + obj.Bc*(u-obj.u_trim);
-        end
-        function [xp] = simulate_one_step_lind(obj, x0, u)
-            % Sim linear discrete system one step
-            xp = obj.x_trim + obj.Ad * (x0-obj.x_trim) + obj.Bd * (u-obj.u_trim);
-        end
-        function [xp] = simulate_one_step_linde(obj, x0, u)
-            % Sim linear discrete (exact) system one step
-            xp = obj.x_trim + obj.Ade * (x0-obj.x_trim) + obj.Bde * (u-obj.u_trim);
-        end
-        function [xp] = simulate_one_step_init(obj, x0, u)
-            % Sim linear discrete initial guess system one step
-            xp = obj.x_trim + obj.A0 * (x0-obj.x_trim) + obj.B0 * (u-obj.u_trim);
-        end
-        function [xp] = simulate_one_step_estim(obj, x0, u)
-            % Sim linear discrete estimated system one step
-            xp = obj.x_trim + obj.A_ms * (x0-obj.x_trim) + obj.B_ms * (u-obj.u_trim);
+            dxl = dyn_func(dt, x0);
+
         end
         
-        function obj = simulate(obj, t0, t_end, x0, U)
+        function [xp] = simulate_lin_discr_step(obj, Ad, Bd, x_trim, u_trim, x0, u)
+            % Sim linear discrete system
+            xp = x_trim + Ad * (x0 - x_trim) + Bd * (u - u_trim);
+        end
+        
+        % Integration along input trajectory
+        function [X] = simulate_nonlinear(obj, dyn_func, dt, x0, U, D)
             
-            nSteps = ceil((t_end-t0)/obj.dt);
-            
-            T = (t0:obj.dt:t_end);
-            X = [x0, zeros(obj.nx, nSteps)]; % nonlinear state trajectory
-            Xl = X;                % linear state trajectory
-            dXl = Xl;              % continuous linear dynamics trajectory
-            Xld = [x0, zeros(obj.nx, nSteps)]; % linear discrete state trajectory
-            Xlde = [x0, zeros(obj.nx, nSteps)]; % linear discrete state trajectory
+            nSteps = size(U, 2);
+            X = [x0, zeros(size(x0, 1), nSteps)];
             
             for iStep = 1:nSteps
-                noise = diag(obj.process_noise_abs) * (2*(rand(obj.nx,1)-0.5));
-                X(:,iStep+1)  = obj.simulate_one_step(X(:,iStep), U(:,iStep)) + noise;
-                [Xl(:,iStep+1), dXl(:,iStep)] = obj.simulate_one_step_lin(Xl(:,iStep), U(:,iStep));
-                Xl(:,iStep+1) = Xl(:,iStep+1) + noise;
-                Xld(:,iStep+1) = obj.simulate_one_step_lind(Xld(:,iStep), U(:,iStep)) + noise;
-                Xlde(:,iStep+1) = obj.simulate_one_step_linde(Xlde(:,iStep), U(:,iStep)) + noise;
+                X(:, iStep+1)  = obj.simulate_nonlinear_step(dyn_func, X(:,iStep), U(:,iStep), dt) + D(:,iStep);
             end
+        end
+        
+        function [X, DX] = simulate_linear_cont(obj, Ac, Bc, x_trim, u_trim, dt, x0, U, D)
+            
+            nSteps = size(U, 2);
+            X = [x0, zeros(size(x0, 1), nSteps)];
+            DX = [x0, zeros(size(x0, 1), nSteps)];
+            
+            for iStep = 1:nSteps
+                [X(:, iStep+1), DX(:,iStep)] = obj.simulate_lin_cont_step(Ac, Bc, x_trim, u_trim, X(:,iStep), U(:,iStep), dt);
+                X(:, iStep+1) = X(:, iStep+1) + D(:,iStep);
+            end
+        end
+        
+        function [X] = simulate_linear_discr(obj, Ad, Bd, x_trim, u_trim, x0, U, D)
+            
+            nSteps = size(U, 2);
+            X = [x0, zeros(size(x0, 1), nSteps)];
+            if nargin < 8
+                D = zeros(size(X));
+            end
+            
+            for iStep = 1:nSteps
+                X(:, iStep+1)  = obj.simulate_lin_discr_step(Ad, Bd, x_trim, u_trim, X(:,iStep), U(:,iStep)) + D(:,iStep);
+            end
+        end
+        
+        % Simulation with noise along input trajectory and for different configurations
+        function obj = simulate_all(obj, T, x0, U)
+            
+            nSteps = length(T) - 1;
+            dt = T(2) - T(1);
+            
+            % Disturbance realisation along trajectory
+            D = diag(obj.process_noise_abs) * ( 2 * (rand(obj.nx, length(T)) - 0.5) );
             
             obj.time = T;
-            obj.state_traj = X;
-            obj.lin_state_traj = Xl;
-            obj.lin_dyn_traj = dXl;
-            obj.lind_state_traj = Xld;
-            obj.linde_state_traj = Xlde;
+            
+            obj.nonlin_state_traj = obj.simulate_nonlinear(obj.dyn_func, dt, x0, U(:, 1:end-1), D);
+            
+            [Xlinc, DXlinc] = obj.simulate_linear_cont(obj.Ac, obj.Bc, obj.x_trim, obj.u_trim, dt, x0, U(:, 1:end-1), D);
+            obj.linc_state_traj = Xlinc;
+            obj.linc_dyn_traj = DXlinc;
+            
+            obj.lind_state_traj = obj.simulate_linear_discr(obj.Ad, obj.Bd, obj.x_trim, obj.u_trim, x0, U(:, 1:end-1), D);
+            obj.linde_state_traj = obj.simulate_linear_discr(obj.Ade, obj.Bde, obj.x_trim, obj.u_trim, x0, U(:, 1:end-1), D);
         end
         
-        function obj = simulate_estimSyst(obj, t0, t_end, x0, U)
+        function plotStateTrajectory(obj, X_data)
             
-            nSteps = ceil((t_end-t0)/obj.dt);
-            
-            Xld0 = [x0, zeros(obj.nx, nSteps)]; % linear discrete state trajectory (initial guess system)
-            Xld_ms = [x0, zeros(obj.nx, nSteps)]; % linear discrete state trajectory (estimated system)
-            Xl = [x0, zeros(obj.nx, nSteps)];
-            
-            for iStep = 1:nSteps
-                Xld0(:,iStep+1) = obj.simulate_one_step_init(Xld0(:,iStep), U(:,iStep));
-                Xld_ms(:,iStep+1) = obj.simulate_one_step_estim(Xld_ms(:,iStep), U(:,iStep));
-                [Xl(:,iStep+1), ~] = obj.simulate_one_step_lin(Xl(:,iStep), U(:,iStep));
-            end
-            
-            obj.lin_init_state_traj = Xld0;     
-            obj.lin_ms_state_traj = Xld_ms;
-            obj.lin_state_traj = Xl;
-        end
-        
-        function plotStateTrajectory(obj, T, X, Xl)
+            T = obj.time;
+            X = obj.nonlin_state_traj;
             
             if nargin < 2
-                T = obj.time;
-                X = obj.state_traj;
-                Xl = obj.lin_state_traj;
+                % Plot nonlinear simulation and various linear/discretized
+                Xlc = obj.linc_state_traj;
                 Xld = obj.lind_state_traj;
                 Xlde = obj.linde_state_traj;
+                
+                figure;
+                for ix=1:obj.nx
+                    subplot(obj.nx, 1, ix);
+                    plot(T, X(ix,:), ...
+                        T, Xlc(ix,:), ...
+                        T, Xld(ix,:), '.', ...
+                        T, Xlde(ix,:), '.');
+                    
+                    title(obj.mdl.sys.StateName{ix});
+                    ylabel(obj.mdl.sys.StateUnit{ix});
+                end
+                subplot(obj.nx, 1, 1);
+                legend('nonlin', 'lin', 'lind', 'linde');
+                
+            else
+                % Plot data and nonlinear/linear simulation
+                Xlc = obj.linc_state_traj;
+                figure;
+                
+                for ix=1:obj.nx
+                    subplot(obj.nx, 1, ix);
+                    plot(T, X_data(ix,:), ...
+                        T, X(ix,:), ...
+                        T, Xlc(ix,:));
+                    
+                    title(obj.mdl.sys.StateName{ix});
+                    ylabel(obj.mdl.sys.StateUnit{ix});
+                end
+                subplot(obj.nx, 1, 1);
+                legend('data', 'nonlin', 'lin');
+                
             end
+        end
+        function plotStateTrajectoryComparison(obj, ...
+                T1, X1, X1_legend, ...
+                T2, X2, X2_legend, ...
+                T3, X3, X3_legend, ...
+                T4, X4, X4_legend)
             
+            % Plot data and nonlinear/linear simulation
             figure;
-            for ix=1:obj.nx
+            
+            for ix = 1:obj.nx
                 subplot(obj.nx, 1, ix);
-                plot(T, X(ix,:), T, Xl(ix,:), T, Xld(ix,:), '.', T, Xlde(ix,:), '.');
+                hold on
+                
+                plot(T1, X1(ix,:));
+                
+                if nargin > 4
+                    plot(T2, X2(ix,:));
+                end
+                if nargin > 7
+                    plot(T3, X3(ix,:));
+                end
+                if nargin > 10
+                    plot(T4, X4(ix,:));
+                end
+                
                 title(obj.mdl.sys.StateName{ix});
                 ylabel(obj.mdl.sys.StateUnit{ix});
             end
+            
             subplot(obj.nx, 1, 1);
-            legend('nonlin', 'lin', 'lind', 'linde');
+            if nargin > 10
+                legend(X1_legend, X2_legend, X3_legend, X4_legend);
+            elseif nargin > 7
+                legend(X1_legend, X2_legend, X3_legend);
+            elseif nargin > 4
+                legend(X1_legend, X2_legend);
+            else
+                legend(X1_legend);
+            end
         end
         
-        function plotEstimStateTrajectory(obj, T, X0, X_ms)
-            
-            if nargin < 2
-                T = obj.time;
-                X0 = obj.lin_init_state_traj;
-                X_ms = obj.lin_ms_state_traj;
-                Xl = obj.lin_state_traj;
-            end
-            
-            figure;
-            for ix=1:obj.nx
-                subplot(obj.nx, 1, ix);
-                plot(T, Xl(ix,:), T, X0(ix,:),'--', T, X_ms(ix,:),'.-');
-                title(obj.mdl.sys.StateName{ix});
-                ylabel(obj.mdl.sys.StateUnit{ix});
-            end
-            subplot(obj.nx, 1, 1);
-            legend('true','initial guess', 'estimated system');
-        end
-        
-        function [NRMSE_init, NRMSE_ms] = calculateNRMSE(obj)
-            X0 = obj.lin_init_state_traj;
-            X_ms = obj.lin_ms_state_traj;
-            Xl = obj.lin_state_traj;
-            
-            RMSE_init = sqrt(sum((X0-Xl).^2, 2));          % nx RMSE-values of the initial guess model
-            NRMSE_init = mean(RMSE_init./abs(mean(Xl,2)));     % Mean of nx normalized RMSE-values
-            
-            RMSE_ms = sqrt(sum((X_ms-Xl).^2, 2));         % nx RMSE-values of the initial guess model
-            NRMSE_ms = mean(RMSE_ms./abs(mean(Xl,2)));       % Mean of nx normalized RMSE-values
-                        
+        function [NRMSE] = calculateNRMSE(obj, X_data, X)
+            RMSE = sqrt(sum((X_data-X).^2, 2));     % nx RMSE-values of the initial guess model
+            NRMSE = mean(RMSE./abs(mean(X,2)));     % Mean of nx normalized RMSE-values
         end
     end
 end
-

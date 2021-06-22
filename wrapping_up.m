@@ -1,14 +1,8 @@
-%% Wrapping up everything
-% Collect data from simulation
-% Initially we have a non-linear model for aircraft flight simulation, from
-% which we can generate some data for random states and random actions.
-% Let's consider states and actions around the x_trim point to generate
-% this data.
 close all
 clear
 clc
 
-% Load models
+% Load linear and nonlinear model
 mdls = lon_LTI_models();
 addpath('nl_dynamics')
 
@@ -22,126 +16,165 @@ mdl.sys = ss(mdl.sys.A, mdl.sys.B(:,1), mdl.sys.C, mdl.sys.D(:,1), ...
     'OutputName', mdl.sys.OutputName);
 mdl.u_trim = mdl.u_trim(1);
 
-Ac = mdl.sys.A
-Bc = mdl.sys.B
-x_trim_true = mdl.x_trim; nx = length(x_trim_true);
-u_trim_true = mdl.u_trim; nu = length(u_trim_true);
-
 dyn_func = @dyn_func_theta; % ## USER ## Select (same) nonlinear model
+
+%% Generate simulation data / ground truth = best identified nonlinear model
 
 % Create sim for model
 dt = 0.01; % Simulation discretization
-process_noise_abs = [1 3 3 0] * dt; % Maximum value of absolute process noise
-sim = SimulatorClass(dyn_func, mdl, dt, process_noise_abs);
+process_noise_abs = [1 0.5 3 0] * dt; % Maximum value of absolute process noise
+sim = SimulatorClass(dyn_func, mdl, dt, process_noise_abs); 
+
+disp('Ac_true = '), disp(sim.Ac)
+disp('Bc_true = '), disp(sim.Bc)
+clear dt process_noise_abs
 
 % Simulate
 t0    = 0;
 t_end = 4;
-T = (t0:dt:t_end);       % Time vector (s)
+T = (t0 : sim.dt : t_end+sim.dt);       % Time vector (s)
+clear t0 t_end
 
 % Possible identification inputs
 ident_dt = 0.16; % dt in 3*dt, 2*dt, 1*dt, 1*dt
-ident2211 = kron([1 1 -1 -1 1 -1], [ones(1, ident_dt/dt)]);
-ident3211 = kron([1 1 1 -1 -1 1 -1], [ones(1, ident_dt/dt)]);
+ident2211 = kron([1 1 -1 -1 1 -1], [ones(1, ident_dt/sim.dt)]);
+ident3211 = kron([1 1 1 -1 -1 1 -1], [ones(1, ident_dt/sim.dt)]);
 identSig = ident3211;
 identSig = identSig .* (rand(1,length(identSig)) * 0.2 + 0.9); % Randomize a bit to gain more information
+clear ident_dt ident2211 ident3211
 
 % Create input trajectory containing identification sequence
 % U = zeros(2,length(T));
-U = repmat(u_trim_true, 1, length(T));
+U = repmat(sim.u_trim, 1, length(T));
 idxStart = find(T>0.1, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(20) * identSig; % Insert ident command starting at 0.25s
 idxStart = find(T>2, 1); U(1, idxStart:idxStart-1+length(identSig)) = deg2rad(20) * -identSig;
+clear idxStart identSig
 
 % Simulate both nonlinear and linear model in parallel (same initial state and control trajectory)
-sim.simulate(t0, t_end, mdl.x_trim, U);
+sim.simulate_all(T, mdl.x_trim, U);
 
+% Plot trajectories with different nonlin/lin / discretization settings
 % Plot: {nonlinear, linearized} continuous dynamics, integrated with ode45
 %       discretized linearized {d: Euler, de: exact}
 sim.plotStateTrajectory();
 
 % Assign variables to comply with existing framework
-df_u = U(:,1:end-1)';
+T = T(1:end-1)';
+U = U(1:end-1)';
 
-df_s = sim.state_traj(:,1:end-1)';
-df_ns = sim.state_traj(:,2:end)';
+X = sim.nonlin_state_traj(:,1:end-1)';
+XP = sim.nonlin_state_traj(:,2:end)';
+data.nonlin.data = table(T, U, X, XP);
+data.nonlin.dt = T(2) - T(1);
+data.nonlin.nx = size(X, 2);
+data.nonlin.nu = size(U, 2);
 
-df_lin_s = sim.lin_state_traj(:,1:end-1)';
-df_lin_ns = sim.lin_state_traj(:,2:end)';
-
-% Load real data
-load('ident_data') % real data
-df_real_u = allSeqDataControls(:, {'elevator'}).Variables;
-df_real_s = allSeqData(:, {'airspeed', 'alpha1', 'pitchRate_smooth', 'pitch'}).Variables;
-df_real_ns = allSeqData(:, {'airspeed', 'alpha1', 'pitchRate_smooth', 'pitch'}).Variables;
-
-% Check discretization uncertainty
-A_true = sim.Ad; % Discretization from truncated Talor series (Euler discretization)
-B_true = sim.Bd;
+X = sim.linc_state_traj(:,1:end-1)';
+XP = sim.linc_state_traj(:,2:end)';
+data.lin.data = table(T, U, X, XP);
+data.lin.dt = T(2) - T(1);
+data.lin.nx = size(X, 2);
+data.lin.nu = size(U, 2);
+clear T U X XP
 
 % Cut whole time and input signals
-cutIdx = (T > 0 & T < 1.9);
-T = T(cutIdx);
-%t0 = T(1);
-%t_end = T(end);
-%U = U(cutIdx);
-df_u = df_u(cutIdx,:);
-df_s = df_s(cutIdx,:);
-df_ns = df_ns(cutIdx,:);
-df_lin_s = df_lin_s(cutIdx,:);
-df_lin_ns = df_lin_ns(cutIdx,:);
+cutIdx = (data.nonlin.data.T >= 0); %& data.nonlin.data.T <= 2);
+data.nonlin.data = data.nonlin.data(cutIdx,:);
+data.nonlin.nSamples = length(data.nonlin.data.X);
 
-nData = size(df_s, 1);
-nRealData = size(df_real_s, 1);
+data.lin.data = data.lin.data(cutIdx,:);
+data.lin.nSamples = length(data.lin.data.X);
 
-%% Initial guess for dynamics: XFLR model
-JA = logical([
-    0 0 0 0;
-    0 1 0 0;
-    0 1 1 0;
-    0 0 0 0]);
-JB = logical([
-    0;
-    0;
-    0;
-    0]);
+clear cutIdx
+
+%% Load real data
+load('ident_data') % real data
+seqToUse = 2; % 2-6 are suitable
+U = resampledControlSeqs{seqToUse}(:, {'elevator'}).Variables;
+X = resampledStateSeqs{seqToUse}(:, {'airspeed', 'alpha1', 'pitchRate_smooth', 'pitch'}).Variables;
+XP = X;
+T = seconds(resampledStateSeqs{seqToUse}.Time);
+
+% Shrink dataset by one to obtain XP
+U = -U(1:end-1, :);
+X = X(1:end-1, :);
+XP = XP(2:end, :);
+T = T(1:end-1);
+
+dt = T(2) - T(1);
+
+sim = SimulatorClass(dyn_func, mdl, dt);
+sim.simulate_all(T, X(1,:)', U(:,1)'); %% How to plot simulated against ground truth?
+sim.plotStateTrajectory(X');
+
+data.real.data = table(T, U, X, XP); 
+data.real.dt = dt;
+data.real.nx = size(X, 2);
+data.real.nu = size(U, 2);
+data.real.nSamples = length(data.real.data.X);
+
+clear T U X XP dt resampledStateSeqs resampledControlSeqs seqToUse process_noise_abs
+clear dyn_func
+
+% data.real = data.real(cutIdx,:);
+% nSamples_real = size(data.real.X, 1);
+% ------------------------------------------------------------------------
+
+%% Configure set membership estimation
+
+% Initial guess for dynamics: XFLR model
+JA = logical([ % x = [V(a) a(lpha) q theta].
+    1 1 0 0;   % X_V      X_a       0      -g
+    1 1 0 0;   % Z_V/V0   Z_a/V0    1      0
+    1 1 1 0;   % M_V      M_a       M_q    0
+    0 0 0 0]); % 0        0         1      0
+JB = logical([ % u = [elev  (throttle)]
+    1;         % X_el
+    1;         % Z_el/V0
+    1;         % M_el
+    0]);       % 0
 J = [JA JB];
-idxJ = find(J);
+smConfig.np = sum(J(:)); 
+smConfig.idxJ = find(J); clear J
 
 % Initial guess for dynamics: XFLR model - but only uncertain values chosen in JA and JB
-init_model = mdls.pitch;
-init_model.x_trim = mdls.xflr_pitch.x_trim;
-init_model.u_trim = mdls.xflr_pitch.u_trim;
-init_model.sys.A(JA(:)) = mdls.xflr_pitch.sys.A(JA(:));
-init_model.sys.B(JB(:)) = mdls.xflr_pitch.sys.B(JB(:));
+model0 = mdls.pitch;
 
-x_trim = init_model.x_trim;
-u_trim = init_model.u_trim(1);
-Ac0 = init_model.sys.A;
-Bc0 = init_model.sys.B(:,1);
+% Select data for estimation
+identData = data.real;
 
-theta_uncert_true = [abs(Ac0 - Ac)./Ac0, abs(Bc0 - Bc)./Bc0];    % true uncertainty (used for debugging/selecting initial theta_uncert value)
-theta_uncert_true(isnan(theta_uncert_true)) = 0
+% For simulation-generated data, artificially worsen the initial guess
+model0.x_trim = mdls.xflr_pitch.x_trim;
+model0.u_trim = mdls.xflr_pitch.u_trim;
+model0.sys.A(JA(:)) = mdls.xflr_pitch.sys.A(JA(:)); clear JA
+model0.sys.B(JB(:)) = mdls.xflr_pitch.sys.B(JB(:)); clear JB
 
 % Discretize initial model
-A0 = eye(nx) + dt * Ac0;                      % Euler approximation
-B0 = dt * Bc0;
-% M = expm([Ac0 Bc0; zeros(nu, nx+nu)]*dt);   % Exact discretization with matrix-exponential-function
-% A0(:,:) = M(1:nx, 1:nx);
-% B0(:,:) = M(1:nx, (nx+1):(nx+nu));
-AB0 = [A0 B0]
+Ac0 = model0.sys.A;
+Bc0 = model0.sys.B(:,1);
 
+% smData.A0 = eye(sim.nx) + identData.dt * Ac0; % Euler approximation
+% smData.B0 = identData.dt * Bc0;
+M = expm([Ac0 Bc0; zeros(sim.nu, sim.nx+sim.nu)]*identData.dt); % Exact discretization with matrix-exponential-function
+smData.A0 = M(1:sim.nx, 1:sim.nx);
+smData.B0 = M(1:sim.nx, (sim.nx+1):(sim.nx+sim.nu)); clear M
 
-% this is to indicate to membership function which parameters has uncertainty
-np = sum(J(:));
-ABi = zeros([size(AB0) np]);
-for iP = 1:np
-    ABi_ = zeros(size(AB0));
-    ABi_(idxJ(iP)) = dt;
-    ABi(:,:,iP) = ABi_;
-end, clear ABi_
+smData.AB0 = [smData.A0 smData.B0]; clear Ac0 Bc0 A0 B0
+disp('AB0 = '), disp(smData.AB0)
+
+% Simulate and plot initial model over ground truth
+X_init = sim.simulate_linear_discr(smData.A0, smData.B0, model0.x_trim, model0.u_trim(1), identData.data.X(1,:)', identData.data.U(:,1)'); 
+
+% Prepare set membership
+smData.ABi = zeros([size(smData.AB0) smConfig.np]);
+for iP = 1:smConfig.np
+    ABi_ = zeros(size(smData.AB0));
+    ABi_(smConfig.idxJ(iP)) = identData.dt;
+    smData.ABi(:,:,iP) = ABi_;
+end, clear ABi_ iP
 
 % Bounds on delta parameters
-H_theta=[eye(np); -eye(np)];
+smData.H_theta = [eye(smConfig.np); -eye(smConfig.np)];
 theta_rel_uncert = 50.0;
 % Ac0Bc0 = [Ac0, Bc0];
 % Ac0Bc0_pos = Ac0Bc0; Ac0Bc0_pos(Ac0Bc0 < 0) = 0;                % ### Asymmetric uncertainty
@@ -150,117 +183,107 @@ theta_rel_uncert = 50.0;
 % % AB0_pos = AB0; AB0_pos(AB0 < 0) = 0;                % ### Asymmetric uncertainty (Discrete system)
 % % AB0_neg = AB0; AB0_neg(AB0 > 0) = 0;                % ### Asymmetric uncertainty
 % % h_theta = ( [-AB0_neg(idxJ); AB0_pos(idxJ)] + theta_rel_uncert * [AB0_pos(idxJ); -AB0_neg(idxJ)] ) ./ dt; % ### Bounds to avoid sign flip + uncertainty range in same sign
-h_theta = repmat(theta_rel_uncert * abs(AB0(idxJ))./dt, 2, 1); % ### Symmetric uncertainty
+smData.h_theta = repmat(theta_rel_uncert * abs( smData.AB0(smConfig.idxJ) ) ./ identData.dt, 2, 1); % ### Symmetric uncertainty
+clear theta_rel_uncert
 
-% Get Set Membership estimation
-nSteps = nData;
-nSteps = 160;
-% Select nSteps samples from dataset, either randomly or equally distributed
-%dataIdx = randperm(nData);          % Random selection from dataset
-%dataIdx = 1:floor(nSteps/nSteps):nSteps; dataIdx = dataIdx(1:nSteps);  % Equally distributed selection over time (= downsampling)
-dataIdx = 1:1:nSteps; % first nSteps points from dataset
+% Set number of ident samples
+smConfig.nSteps = identData.nSamples;
+% smConfig.nSteps = 160; % Manual override
 
-nSteps = length(dataIdx);
-stepIdx = 0:nSteps;
+% Setup sample drawing method from data
+%identConfig.dataIdx = randperm(smData.nSteps);                                                                   % Random selection from dataset
+%identConfig.dataIdx = 1:floor(smData.nSteps/smData.nSamples):smData.nSteps; dataIdx = dataIdx(1:smData.nSteps);  % Equally distributed selection over time (= downsampling)
+smConfig.dataIdx = 1:1:smConfig.nSteps;                                                                         % first nSteps points from dataset
 
-% Select data for estimation
-% % DU = df_u(dataIdx, :)' - u_trim;        % control dataset
-% % DX = df_lin_s(dataIdx, :)' - x_trim;    % linearized model, state dataset
-% % DXP = df_lin_ns(dataIdx, :)' - x_trim;  % linearized model, next state dataset
+smConfig.nSteps = length(smConfig.dataIdx);
+smConfig.stepIdx = 0:smConfig.nSteps;
 
-DU = df_u(dataIdx, :)' - u_trim;        % control dataset
-DX = df_s(dataIdx, :)' - x_trim;    % nonlinear model, state dataset
-DXP = df_ns(dataIdx, :)' - x_trim;  % nonlinear model, next state dataset
-
-% % DU = df_real_u(dataIdx, :)' - u_trim;  % real dataset, control input
-% % DX = df_real_s(dataIdx, :)' - x_trim;  % real dataset, state dataset
-% % DXP = df_real_ns(dataIdx, :)' - x_trim; % real dataset, next state dataset
-
-AB_ms = AB0;
-dTheta_hat = zeros(nSteps+1, np); % estimated values
-dTheta_bounds = zeros(nSteps+1, 2*np);
-setD = cell(1, nSteps+1);
+smData.AB_ms = smData.AB0;
+smData.dTheta_hat = zeros(smConfig.nSteps+1, smConfig.np);       % estimated values
+smData.dTheta_bounds = zeros(smConfig.nSteps+1, 2*smConfig.np);
+smData.setD = cell(1, smConfig.nSteps+1);
 
 % Define additive polytopic uncertainty description
-DW = DXP - AB_ms * [DX; DU];
-w_max = 1.1 * max(abs(DW), [], 2);
+smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X, identData.data.U]';
+smData.w_max = 1.1 * max(abs(smData.DW), [], 2);
 %w_max = 0.1 * ones(nx, 1); %0.041;
-Hw = [eye(nx); -eye(nx)];
 
-f1 = figure; iterations = 0; w_maxes = [];
+plotHandles.f1 = figure; smData.iterations = 0; smData.w_maxes = [];
 clear dTheta_final_bounds_last
 
 %%
-recursive_estimation = false;
-estimate_based_W = false;
+smConfig.recursive_estimation = false;
+smConfig.estimate_based_W = true;
 
-term_crit = 1; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
+smConfig.term_crit = 15; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
         
 if exist('dTheta_final_bounds_last', 'var'), fprintf('Warmstarting'); end
 
 while (true)
-    % define initial parameter set
-    Omega{1} = Polyhedron(H_theta, h_theta);
-    Hh_theta = H_theta .* h_theta;
-    dTheta_bounds(1,:) = Hh_theta(logical(repmat(eye(np),2,1))); clear Hh_theta
+    % Define initial parameter set
+    smData.Omega{1} = Polyhedron(smData.H_theta, smData.h_theta);
+    Hh_theta = smData.H_theta .* smData.h_theta;
+    smData.dTheta_bounds(1,:) = Hh_theta(logical(repmat(eye(smConfig.np),2,1))); clear Hh_theta
     
     % Define disturbance bounds
-    if estimate_based_W
-        DW = DXP - AB_ms * [DX; DU];
-        w_max = max(abs(DW), [], 2);
+    if smConfig.estimate_based_W
+        smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X, identData.data.U]';
+        smData.w_max = 1.1 * max(abs(smData.DW), [], 2);
     end
-    hw = repmat(w_max, 2, 1);
-    W = Polyhedron(Hw, hw);
+    Hw = [eye(sim.nx); -eye(sim.nx)];
+    hw = repmat(smData.w_max, 2, 1);
+    smData.W = Polyhedron(Hw, hw); clear Hw hw
     
     % Instantiate set membership estimator
-    sm = SetMembership(Omega{1}, W, ABi, AB0);
+    sm = SetMembership(smData.Omega{1}, smData.W, smData.ABi, smData.AB0);
     
     % Keep track of w_max evolution
-    w_maxes = [w_maxes w_max]; 
-    if size(w_maxes,2)-1 > iterations(end), iterations = [iterations iterations(end)+1]; end
-    set(0, 'currentfigure', f1);
-    subplot(length(w_max), 1, 1); plot(iterations, w_maxes(1,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(iterations), grid on, title('w\_{max}')
-    subplot(length(w_max), 1, 2); plot(iterations, w_maxes(2,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(iterations), grid on
-    subplot(length(w_max), 1, 3); plot(iterations, w_maxes(3,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(iterations), grid on
-    subplot(length(w_max), 1, 4); plot(iterations, w_maxes(4,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(iterations), grid on, drawnow
+    smData.w_maxes = [smData.w_maxes smData.w_max]; 
+    if size(smData.w_maxes,2)-1 > smData.iterations(end), smData.iterations = [smData.iterations smData.iterations(end)+1]; end
+    set(0, 'currentfigure', plotHandles.f1);
+    subplot(length(smData.w_max), 1, 1); plot(smData.iterations, smData.w_maxes(1,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on, title('w\_{max}')
+    subplot(length(smData.w_max), 1, 2); plot(smData.iterations, smData.w_maxes(2,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on
+    subplot(length(smData.w_max), 1, 3); plot(smData.iterations, smData.w_maxes(3,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on
+    subplot(length(smData.w_max), 1, 4); plot(smData.iterations, smData.w_maxes(4,:), '.-k', 'MarkerSize', 12), xlabel('it'), xticks(smData.iterations), grid on, drawnow
 
-    fprintf(['\nStarting SM estimation with w_max = ' num2str(w_max')]); tic;    
-    if recursive_estimation
+   
+    fprintf(['\nStarting SM estimation with w_max = ' num2str(smData.w_max')]); tic;    
+    if smConfig.recursive_estimation
         % Estimate recursively, sample by sample
-        
-        % Use nSteps samples for set membership identification
         iPlot = 1;
-        for iStep = stepIdx(2:end)
-            id = dataIdx(iStep);
-            [Omega{iStep+1}, setD{iStep+1}] = sm.update(DXP(:,id), DX(:,id), DU(:,id));    % update set membership
+        for iStep = smConfig.stepIdx(2:end)
+            iSample = smConfig.dataIdx(iStep);
             
-            if Omega{iStep+1}.isEmptySet
-                if estimate_based_W
+            % update set membership
+            [smData.Omega{iStep+1}, smData.setD{iStep+1}] = sm.update(identData.data.XP(iSample,:)', identData.data.X(iSample,:)', identData.data.U(iSample,:)');    
+            
+            if smData.Omega{iStep+1}.isEmptySet
+                if smConfig.estimate_based_W
                     AB_ms = sm.get_AB(); % Save current AB estimate
                     modify_W_str = 'iterate';
                 else
                     % Restart estimation with larger W
-                    w_max = 1.1 * w_max;
+                    smData.w_max = 1.1 * smData.w_max;
                     modify_W_str = 'enlarge';
                 end
-                fprintf([' -- Step ' num2str(iStep) '/' num2str(nSteps) ': Empty set, ' modify_W_str ' disturbance set W.']);
+                fprintf([' -- Step ' num2str(iStep) '/' num2str(smConfig.nSteps) ': Empty set, ' modify_W_str ' disturbance set W.']);
                 break;
             end
             
-            dTheta_hat(iStep+1,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
-            dTheta_bounds(iStep+1,:) = sm.theta_bounds';
+            smData.dTheta_hat(iStep+1,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
+            smData.dTheta_bounds(iStep+1,:) = sm.theta_bounds';
             
-            if (np == 2) %&& (iStep >= nSteps - 4) % Plot 2D set (if estimating only two parameters)
-                if ~setD{iStep+1}.isBounded
+            if (smConfig.np == 2) %&& (iStep >= nSteps - 4) % Plot 2D set (if estimating only two parameters)
+                if ~smData.setD{iStep+1}.isBounded
                     fprintf([' - D not bounded.']);
-                    setD{iStep+1} = Polyhedron('A',setD{iStep+1}.A, 'b', setD{iStep+1}.b, 'lb', -1000*ones(2,1), 'ub', 1000*ones(2,1));
+                    smData.setD{iStep+1} = Polyhedron('A', smData.setD{iStep+1}.A, 'b', smData.setD{iStep+1}.b, 'lb', -1000*ones(2,1), 'ub', 1000*ones(2,1));
                 end
                 subplot(2,2,iPlot)
                 hold off
-                plot(setD{iStep+1},'color','b','alpha',0.1)   % Unfalsified set from this measurement
+                plot(smData.setD{iStep+1},'color','b','alpha',0.1)   % Unfalsified set from this measurement
                 hold on
-                plot(Omega{iStep+1},'alpha',0.1)              % Present param set
-                plot(Omega{iStep+1})                        % Intersection
+                plot(smData.Omega{iStep+1},'alpha',0.1)              % Present param set
+                plot(smData.Omega{iStep+1})                        % Intersection
                 title(['k=', int2str(iStep)])
                 iPlot = iPlot + 1;
                 if iPlot > 4, iPlot = 1; end
@@ -268,102 +291,111 @@ while (true)
         end
     else
         % Estimate from all samples in one step
-        Omega{nSteps+1} = sm.update(DXP, DX, DU);
-        if Omega{nSteps+1}.isEmptySet
-            if estimate_based_W
-                AB_ms = sm.get_AB(); % Save current AB estimate
+        smData.Omega{smConfig.nSteps+1} = sm.update(identData.data.XP', identData.data.X', identData.data.U');
+        if smData.Omega{smConfig.nSteps+1}.isEmptySet
+            if smConfig.estimate_based_W
+                smData.AB_ms = sm.get_AB(); % Save current AB estimate
                 modify_W_str = 'iterate';
             else
                 % Restart estimation with shrinked W
-                w_max = 1.1 * w_max;
+                smData.w_max = 1.1 * smData.w_max;
                 modify_W_str = 'enlarge';
             end
-            fprintf(['\nAll samples used. Empty set, ' modify_W_str ' disturbance set W.']);
+            fprintf(['\nEmpty set, ' modify_W_str ' disturbance set W.']);
             continue
         else
-           
-            dTheta_hat(nSteps+1,:) = sm.theta_hat';  % estimate parameter (center of the estimated set)
-            dTheta_hat(:,:) = interp1([1 2],[dTheta_hat(1,:);dTheta_hat(end,:)], linspace(1,2,nSteps+1));
+            smData.dTheta_hat(smConfig.nSteps+1, :) = sm.theta_hat';         % estimate parameter (center of the estimated set)
+            smData.dTheta_hat(:,:) = interp1([1 2],[smData.dTheta_hat(1,:); smData.dTheta_hat(end,:)], linspace(1, 2, smConfig.nSteps+1));
 
-            dTheta_bounds(nSteps+1,:) = sm.theta_bounds';
-            dTheta_bounds(:,:) = interp1([1 2],[dTheta_bounds(1,:);dTheta_bounds(end,:)], linspace(1,2,nSteps+1));
+            smData.dTheta_bounds(smConfig.nSteps+1, :) = sm.theta_bounds';
+            smData.dTheta_bounds(:,:) = interp1([1 2],[smData.dTheta_bounds(1,:); smData.dTheta_bounds(end,:)], linspace(1, 2, smConfig.nSteps+1));
             
-            iStep = nSteps; % Set steps to meet following 'estimation completed' condition
+            iStep = smConfig.nSteps; % Set steps to meet following 'estimation completed' condition
         end
     end
     
-    if iStep == nSteps % Estimation completed, i.e., all samples used (either recursively or at once)
-        AB_ms = sm.get_AB(); % Save current AB estimate
+    if iStep == smConfig.nSteps % Estimation completed, i.e., all samples used (either recursively or at once)
+        smData.AB_ms = sm.get_AB(); % Save current AB estimate
         % Prepare restart of estimation with updated W (warmstart)
-        if estimate_based_W
+        if smConfig.estimate_based_W
             modify_W_str = 'Iterate';
         else
             % Restart estimation with shrinked W
-            w_max = 0.9 * w_max;
+            smData.w_max = 0.9 * smData.w_max;
             modify_W_str = 'Tighten';
         end
-        break; % Run only once
+        %break; % Run only once
         
         if exist('dTheta_final_bounds_last', 'var')
+            % Previous result is available for comparison
+            
             % Range between dTheta bounds
-            dTheta_final_bounds_size = abs(diff(reshape(dTheta_bounds(end,:), 2, np)));
-            dTheta_final_bounds_last_size = abs(diff(reshape(dTheta_final_bounds_last, 2, np)));
+            dTheta_final_bounds_size = abs(diff(reshape(smData.dTheta_bounds(end,:), 2, smConfig.np)));
+            dTheta_final_bounds_last_size = abs(diff(reshape(dTheta_final_bounds_last, 2, smConfig.np)));
             
             % Change in that range w.r.t. to previous complete estimation
             dTheta_final_bounds_size_diff  = dTheta_final_bounds_last_size - dTheta_final_bounds_size;
-            if all(dTheta_final_bounds_size_diff < term_crit)
-                % Improvement w.r.t. last cmoplete estimation is
-                % sufficiently small, terminate
-                fprintf(['\n ==== \nEstimation complete (' num2str(round(toc,1)) 's) with termination criterion ' num2str(term_crit) ', w_max = ' num2str(W.b(1)) '.' ...
-                    '\nFor more accurate estimation, run section again and/or decrease term_crit.\n\n']);
-                clear id du dx dxp iStep
-                dTheta_final_bounds_last = dTheta_bounds(end,:);
-                break
+            if all(dTheta_final_bounds_size_diff >= -0.1)
+                % There was an improvement
+                if all(dTheta_final_bounds_size_diff < smConfig.term_crit)
+                    % Improvement is small enough to stop
+                    fprintf(['\n ==== \nEstimation complete (' num2str(round(toc,1)) 's). dTheta_bounds span < termination criterion ' num2str(smConfig.term_crit) ', w_max = ' num2str(smData.w_max') '.' ...
+                        '\nFor more accurate estimation, run section again and/or decrease term_crit.\n\n']);
+                    clear id du dx dxp iStep
+                    dTheta_final_bounds_last = smData.dTheta_bounds(end,:);
+                    break
+                end
+            else
+                % There was worsening -> Go again
+                
             end
         end
-        fprintf(['\nAll samples used (' num2str(round(toc,1)) 's). ' modify_W_str ' disturbance set W.\n ----']);
-        dTheta_final_bounds_last = dTheta_bounds(end,:);
+        fprintf(['\nAll samples used (' num2str(round(toc,1)) 's). ' modify_W_str ' disturbance set W.\n ----']); 
+        dTheta_final_bounds_last = smData.dTheta_bounds(end,:);
     end
 end
-%Omega_end = Omega{nSteps+1}; %figure, plot(Omega_end) % plot final parameter set
+clear modify_W_str dTheta_final_bounds_size dTheta_final_bounds_last_size dTheta_final_bounds_size_diff
 
 % Set-Membership estimated system
-AB_ms
-A_ms = AB_ms(:,1:nx); B_ms = AB_ms(:,nx+1:nx+nu);
+AB_ms = smData.AB_ms
+smData.A_ms = AB_ms(:,1:sim.nx); smData.B_ms = AB_ms(:, sim.nx+1 : sim.nx+sim.nu); clear AB_ms
 
 % Output true system (discrete) for comparison
-AB_true = [A_true B_true]
+AB_true = [sim.Ade sim.Bde]
 
 % Plot delta and absolute parameter values
-for iP = 1:np
+for iP = 1:smConfig.np
     figure(iP+10), %clf;
     subplot(1,2,1) % Delta parameter estimation
     hold on;
-    patch([stepIdx'; flipud(stepIdx')], [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
-    plot(0:nSteps, dTheta_hat(:,iP), 'b');
-    ylim([mean(dTheta_bounds(:,2*iP)), mean(dTheta_bounds(:,2*iP-1))])
+    patch([smConfig.stepIdx'; flipud(smConfig.stepIdx')], [smData.dTheta_bounds(:,2*iP-1); flipud(smData.dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
+    plot(0:smConfig.nSteps, smData.dTheta_hat(:,iP), 'b');
+    ylim([mean(smData.dTheta_bounds(:,2*iP)), mean(smData.dTheta_bounds(:,2*iP-1))])
     title(['Param ' num2str(iP) ' dTheta hat'])
     
     subplot(1,2,2) % Parameter estimation
     hold on
     % True value (linearized dynamics) dashed line
-    plot(stepIdx, repmat(AB_true(idxJ(iP)), nSteps+1), 'k--');
+    plot(smConfig.stepIdx, repmat(AB_true(smConfig.idxJ(iP)), smConfig.nSteps+1), 'k--');
     % Estimation history
-    patch([stepIdx'; flipud(stepIdx')], AB0(idxJ(iP)) + dt * [dTheta_bounds(:,2*iP-1); flipud(dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
-    plot(stepIdx, AB0(idxJ(iP)) + dt * dTheta_hat(:,iP), 'b');
-    ylim(AB0(idxJ(iP)) + dt * [mean(dTheta_bounds(:,2*iP)), mean(dTheta_bounds(:,2*iP-1))])
+    patch([smConfig.stepIdx'; flipud(smConfig.stepIdx')], smData.AB0(smConfig.idxJ(iP)) + identData.dt * [smData.dTheta_bounds(:,2*iP-1); flipud(smData.dTheta_bounds(:,2*iP))], 'k', 'FaceAlpha', 0.1); % Prediction intervals
+    plot(smConfig.stepIdx, smData.AB0(smConfig.idxJ(iP)) + identData.dt * smData.dTheta_hat(:,iP), 'b');
+    ylim(smData.AB0(smConfig.idxJ(iP)) + identData.dt * [mean(smData.dTheta_bounds(:,2*iP)), mean(smData.dTheta_bounds(:,2*iP-1))])
     title(['Param ' num2str(iP) ' value'])
-end
+end, clear iP AB_true
 
 disp('Indices changed in A and B:')
-disp([A_ms ~= A0, B_ms ~= B0])
+disp([smData.A_ms ~= smData.A0, smData.B_ms ~= smData.B0])
 
-sim.addModels(AB0, AB_ms);                          % add initial guess model and estimated model to simulator class
-sim.simulate_estimSyst(t0, t_end, mdl.x_trim, U);   % simulate initial guess and estimated model
-sim.plotEstimStateTrajectory();                     % plot state trajectories of true, initial and estimated system
+% Simulate membership-identified model and plot (data, init model, membership model) trajectories
+X_ms = sim.simulate_linear_discr(smData.A_ms, smData.B_ms, model0.x_trim, model0.u_trim(1), identData.data.X(1,:)', identData.data.U(:,1)');   % simulate initial guess and estimated model
+sim.plotStateTrajectoryComparison(...
+    identData.data.T, identData.data.X', 'data', ...
+    identData.data.T, X_init(:,1:end-1), 'init', ...
+    identData.data.T, X_ms(:,1:end-1), 'ms');
 
-
-[NRMSE_init, NRMSE_ms] = sim.calculateNRMSE();
+NRMSE_init = sim.calculateNRMSE(identData.data.X', X_init(:,1:end-1));
+NRMSE_ms = sim.calculateNRMSE(identData.data.X', X_ms(:,1:end-1));
 fprintf(['\nNormalized RMSE improved from ' num2str(NRMSE_init) ' (initial guess) to ' num2str(NRMSE_ms) ' (estimated model)\n']);
 return
 
