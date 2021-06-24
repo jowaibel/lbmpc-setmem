@@ -163,7 +163,7 @@ model0.u_trim = mdls.xflr_pitch.u_trim;
 model0.sys.A(JA(:)) = mdls.xflr_pitch.sys.A(JA(:)); clear JA
 model0.sys.B(JB(:)) = mdls.xflr_pitch.sys.B(JB(:)); clear JB
 % Select data for estimation
-identData = data.lin;
+identData = data.nonlin;
 
 % Discretize initial model
 Ac0 = model0.sys.A;
