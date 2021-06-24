@@ -104,17 +104,29 @@ dt = T(2) - T(1);
 % Simulate with best nonlinear model and plot mismatch with data
 sim = SimulatorClass(dyn_func, mdl, dt);
 sim.simulate_all(T, X(1,:)', U(:,1)');
-%sim.plotStateTrajectory(X');
+% sim.plotStateTrajectory(X');
 
 data.real.data = table(T, U, X, XP);
 data.real.dt = dt;
 data.real.nx = size(X, 2);
 data.real.nu = size(U, 2);
 data.real.nSamples = length(data.real.data.X);
+n={'V_a'  '\alpha' 'q'  '\Theta'};
+un={'m/s' 'rad' 'rad/s' 'rad'};
+for i=1:4
+    subplot(3,2,i)
+    plot(data.real.data.T-data.real.data.T(1),data.real.data.XP(:,i));
+    title(n(i))
+    ylabel(un(i))
+end
+subplot(3,1,3)
+plot(data.real.data.T-data.real.data.T(1),data.real.data.U',"k")
+title("\delta_e");
+ylabel("rad");
+xlabel("Time (s)");
 
 clear T U X XP dt resampledStateSeqs resampledControlSeqs seqToUse process_noise_abs
 clear dyn_func
-
 %% Configure set membership estimation
 
 % Initial guess for dynamics: XFLR model
@@ -151,7 +163,7 @@ model0.u_trim = mdls.xflr_pitch.u_trim;
 model0.sys.A(JA(:)) = mdls.xflr_pitch.sys.A(JA(:)); clear JA
 model0.sys.B(JB(:)) = mdls.xflr_pitch.sys.B(JB(:)); clear JB
 % Select data for estimation
-identData = data.real;
+identData = data.lin;
 
 % Discretize initial model
 Ac0 = model0.sys.A;
@@ -215,7 +227,7 @@ clear dTheta_final_bounds_last
 smConfig.recursive_estimation = false;
 smConfig.trim_optim = true; 
 smConfig.term_crit = 1e-3; % The estimation tries to tighten the dTheta uncertainty bounds until the certainty range in all parameters decreases less than term_crit.
-scale_w=1.01; % term to scale w noise bounds
+scale_w=1; % term to scale w noise bounds
 
 % Define additive polytopic uncertainty description
 smData.DW = identData.data.XP' - smData.AB_ms * [identData.data.X - model0.x_trim', identData.data.U - model0.u_trim(1)']' - model0.x_trim;

@@ -2,6 +2,7 @@ classdef SimulatorClass < handle
     properties
         dt
         nx, nu
+        U
         dyn_func
         mdl
         x_trim, u_trim
@@ -114,7 +115,7 @@ classdef SimulatorClass < handle
             
             % Disturbance realisation along trajectory
             D = diag(obj.process_noise_abs) * ( 2 * (rand(obj.nx, length(T)) - 0.5) );
-            
+            obj.U=U;
             obj.time = T;
             
             obj.nonlin_state_traj = obj.simulate_nonlinear(obj.dyn_func, dt, x0, U(:, 1:end-1), D);
@@ -140,36 +141,44 @@ classdef SimulatorClass < handle
                 
                 figure;
                 for ix=1:obj.nx
-                    subplot(obj.nx, 1, ix);
+                    subplot(obj.nx/2+1, 2, ix);
                     plot(T, X(ix,:), ...
                         T, Xlc(ix,:), ...
                         T, Xld(ix,:), '.', ...
                         T, Xlde(ix,:), '.');
-                    
+                    xlim([0,T(end)]);
                     title(obj.mdl.sys.StateName{ix});
                     ylabel(obj.mdl.sys.StateUnit{ix});
                 end
-                subplot(obj.nx, 1, 1);
+                subplot(obj.nx/2+1, 2, 1);
                 legend('nonlin', 'lin', 'lind', 'linde');
-                
+                xlim([0,T(end)]);
             else
                 % Plot data and nonlinear/linear simulation
                 Xlc = obj.linc_state_traj;
                 figure;
                 
                 for ix=1:obj.nx
-                    subplot(obj.nx, 1, ix);
+                    subplot(obj.nx/2+1, 2, ix);
                     plot(T, X_data(ix,:), ...
                         T, X(ix,:), ...
                         T, Xlc(ix,:));
-                    
+                    xlim([0,T(end)]);
                     title(obj.mdl.sys.StateName{ix});
                     ylabel(obj.mdl.sys.StateUnit{ix});
                 end
-                subplot(obj.nx, 1, 1);
+                subplot(obj.nx/2+1, 2,1);
+                xlim([0,T(end)]);
                 legend('data', 'nonlin', 'lin');
-                
             end
+            subplot(obj.nx+1, 1, 5);
+            plot(T,obj.U,"k")
+            title("\delta_e");
+            ylabel("rad");
+            xlim([0,T(end)]);
+            xlabel("Time (s)");
+            subplot(obj.nx/2+1, 2, 3);xlabel("Time (s)");
+            subplot(obj.nx/2+1, 2, 4);xlabel("Time (s)");
         end
         function plotStateTrajectoryComparison(obj, ...
                 T1, X1, X1_legend, ...
