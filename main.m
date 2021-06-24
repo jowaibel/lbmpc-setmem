@@ -104,7 +104,6 @@ dt = T(2) - T(1);
 % Simulate with best nonlinear model and plot mismatch with data
 sim = SimulatorClass(dyn_func, mdl, dt);
 sim.simulate_all(T, X(1,:)', U(:,1)');
-
 % sim.plotStateTrajectory(X');
 
 data.real.data = table(T, U, X, XP);
@@ -369,7 +368,7 @@ smData.A_ms = AB_ms(:,1:sim.nx); smData.B_ms = AB_ms(:, sim.nx+1 : sim.nx+sim.nu
 model0.x_trim=trims_it(1:sim.nx,index);
 model0.u_trim(1)=trims_it(sim.nx+1,index);
 % Output true system (discrete) for comparison
-% AB_true = [sim.Ade sim.Bde]
+AB_true = [sim.Ade sim.Bde]
 % Plot delta and absolute parameter values
 for iP = 1:smConfig.np
     figure(iP+10), %clf;
@@ -430,11 +429,11 @@ return
 %% Maneuver with linearized model and membership model the non linear simulator
 see_progress=true; %show progress bar
 %AB_ms=[A_ms B_ms];
-x_trim_ms = model0.x_trim; 
-u_trim_ms = model0.u_trim(1);
+x_trim=model0.x_trim;
+u_trim=model0.u_trim(1);
 x_trim_true = mdls.pitch.x_trim;
 u_trim_true = mdls.pitch.u_trim(1);
-dt = identData.dt;
+dt=identData.dt;
 DXP=identData.data.XP';
 DX=identData.data.X';
 DU=identData.data.U';
@@ -443,9 +442,6 @@ nu=sim.nu;
 A_ms=smData.A_ms;
 B_ms=smData.B_ms;
 AB_ms=smData.AB_ms;
-A_true = sim.Ade;
-B_true = sim.Bde;
-AB_true = [A_true, B_true];
 
 % Set up reference
 ref_q = [repmat(deg2rad(0),1,40)];
@@ -453,16 +449,16 @@ ref_amplitude = deg2rad(20);
 ref_freq = 1/4;  % in Hz
 ref_endtime = 8;    % in s
 ref_theta = repmat(ref_amplitude,1,100);     % Step from trim value to new theta
-ref_theta = x_trim_true(4)-ref_amplitude + ref_amplitude* square(2*pi*ref_freq*(0:dt:ref_endtime));      % Square wave reference
-ref_theta = x_trim_true(4)-ref_amplitude + ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
-ref = [ref_theta];
-s = [4]; %state(s) to control in concordance with ref order (in this case applying only theta control)
-H = 5; % MPC horizon
-opt_steps = size(ref,2)-H;
+ref_theta = x_trim(4)-ref_amplitude + ref_amplitude* square(2*pi*ref_freq*(0:dt:ref_endtime));      % Square wave reference
+ref_theta = x_trim(4)-ref_amplitude + ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
+ref=[ref_theta];
+s=[4]; %state(s) to control in concordance with ref order (in this case applying only theta control)
+H=5; % MPC horizon
+opt_steps=size(ref,2)-H;
 disp("Controlling state variable ["+char(mdls.xflr_pitch.sys.StateName(s))+"] for "+dt*size(ref,2)+" seconds, horizon H="+H+" steps ("+dt*H+" seconds)")
 
 % Calculate noise bounds:
-DW_ms = DXP - x_trim_ms - AB_ms * [DX-x_trim_ms; DU-u_trim_ms];
+DW_ms = DXP - x_trim - smData.AB_ms * [DX-x_trim; DU-u_trim];
 DW_true = DXP - x_trim_true - AB_true * [DX-x_trim_true; DU-u_trim_true];
 w_max_ms = max(abs(DW_ms), [], 2);
 w_max_true = max(abs(DW_true), [], 2);
@@ -487,6 +483,8 @@ end
 % Calculate disturbance reachable sets
 upper_ms=[0;0;0;0];
 lower_ms=[0;0;0;0];
+upper_true=[0;0;0;0];
+lower_true=[0;0;0;0];
 F_ms{1} = Polyhedron(zeros(0,nx),[]);   %start with empty polyhedron
 F_true{1} = Polyhedron(zeros(0,nx),[]);   %start with empty polyhedron
 if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
@@ -526,8 +524,8 @@ end
 H_x=[eye(nx);-eye(nx)];
 % h_x=[13.5 ; 0 ; .4 ; .2; 
 %      -12 ; 3 ; .4 ; .2];
-h_x = [40; deg2rad(15); 8; deg2rad(20);       
-       -5; deg2rad(15); 8; deg2rad(70)]; 
+h_x = [40; 10; 10; deg2rad(70);       
+       -5; 10; 10; deg2rad(70)]; 
 
 X_set=Polyhedron(H_x,h_x);
 for i=1:H
@@ -537,28 +535,16 @@ for i=1:H
     X_t_true{i+1}=X_t_true{i+1}.minHRep;
 end
 
-
-% Wind disturbance
-q_wind = -2;     % in m/s
-wind_start = 3; % in seconds
-wind_end = 3.1;   % in seconds
-
 %with membership model
-x0 = x_trim_true;
-X_ms = x0;
-U_MPC_ms = [];
+x0=x_trim;
+X_ms=x0;
+U_MPC_ms=[];
 u_old = 0;
 if see_progress progressbar= waitbar(0, 'Starting'); end
 for t = 1:opt_steps
-    
-    if((t>wind_start/dt)&&(t<wind_end/dt))
-        x0(3) = x0(3) + q_wind;
-    end
-    
-    [U,X,u] = MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_t_ms,K_ms, u_old,x_trim_ms,u_trim_ms);
+    [U,X,u]=MPC_tight(A_ms,B_ms,x0,ref(:,t:end),s,H,F_ms,X_t_ms,K_ms, u_old,x_trim,u_trim);
 %     x0=A_true*x0+B_true*u;
-%     x0 = sim.simulate_one_step(x0, u);
-    x0 = sim.simulate_nonlinear_step(sim.dyn_func, x0, u, dt);
+    x0 = sim.simulate_one_step(x0, u);
     X_ms=cat(2,X_ms,x0);
     U_MPC_ms=cat(2,U_MPC_ms,u);
     if isnan(u)
@@ -573,21 +559,15 @@ end
 if see_progress close(progressbar); end
 
 %with linearized model
-x0 = x_trim_true;
-X_true = x0;
-U_MPC_true = [];
+x0=x_trim;
+X_true=x0;
+U_MPC_true=[];
 u_old = 0;
 if see_progress progressbar= waitbar(0, 'Starting'); end % Init single bar
 for t = 1:opt_steps
-    
-    if((t>wind_start/dt)&&(t<wind_end/dt))
-        x0(3) = x0(3) + q_wind;
-    end
-    
     [U,X,u]=MPC_tight(A_true,B_true,x0,ref(:,t:end),s,H,F_true,X_t_true,K_true, u_old,x_trim_true,u_trim_true);
 %     x0=A_true*x0+B_true*u;
-%     x0 = sim.simulate_one_step(x0, u);
-    x0 = sim.simulate_nonlinear_step(sim.dyn_func, x0, u, dt);
+    x0 = sim.simulate_one_step(x0, u);
     X_true=cat(2,X_true,x0);
     U_MPC_true=cat(2,U_MPC_true,u);
     if isnan(u)
@@ -607,15 +587,15 @@ time_true = 0:dt:(size(X_true,2)-1)*dt;
 time = 0:dt:opt_steps*dt;
 figure
 for k=1:nx
-    subplot(4,2,2*k-1); plot(time_ms, X_ms(k,:)); hold on; ylabel([mdls.xflr_pitch.sys.StateName{k}, ' in ', mdls.xflr_pitch.sys.StateUnit{k}]);
-    if k==1 title("MPC with estimated model"); end
+    subplot(4,2,2*k-1); plot(time_ms, X_ms(k,:)); hold on; ylabel(char(mdls.xflr_pitch.sys.StateName(k)));
+    if k==1 title("MPC M.S constr. satisf."); end
     plot(time,h_x(k)*ones(opt_steps+1,1),"--"); hold on;
     plot(time,-h_x(k+4)*ones(opt_steps+1,1),"--");
     xlabel('time in s');
 end
 for k=1:nx
-    subplot(4,2,2*k); plot(time_true, X_true(k,:)); hold on; ylabel([mdls.xflr_pitch.sys.StateName{k}, ' in ', mdls.xflr_pitch.sys.StateUnit{k}]);
-    if k==1 title("MPC with true model"); end
+    subplot(4,2,2*k); plot(time_true, X_true(k,:)); hold on; ylabel(char(mdls.xflr_pitch.sys.StateName(k)));
+    if k==1 title("MPC true model constr. satisf."); end
     plot(time,h_x(k)*ones(opt_steps+1,1),"--"); hold on; 
     plot(time,-h_x(k+4)*ones(opt_steps+1,1),"--")
     xlabel('time in s');
@@ -626,13 +606,12 @@ for it_s = 1:size(s,1)
     subplot(2+size(s,1),1,it_s)
     plot(time_true, X_true(s(it_s),1:end),"r")
     hold on
-    plot(time_ms, X_ms(s(it_s),1:end),"b")
+    plot(time_ms, X_ms(s(it_s),1:end),"g")
     hold on
     plot(time, ref(it_s, 1:opt_steps+1),"k")
-    legend(["True","Estimated","Reference"])
-    ylabel([mdls.xflr_pitch.sys.StateName{s(it_s)}, ' in ', mdls.xflr_pitch.sys.StateUnit{s(it_s)}])
+    legend(["True","M.S","ref."])
+    ylabel(char(mdls.xflr_pitch.sys.StateName(s(it_s))))
     xlabel('time in s');
-    title('Reference tracking of controlled state')
 end
 
 obj_true=sum((X_true(s,:)-ref(:,1:size(X_true,2))).^2,1);
@@ -640,9 +619,9 @@ obj_ms=sum((X_ms(s,:)-ref(:,1:size(X_ms,2))).^2,1);
 subplot(2+size(s,1),1,size(s,1)+1)
 plot(time, obj_true,"r")
 hold on
-plot(time, obj_ms,"b")
-legend(["True","Estimated"])
-title("Objective function value")
+plot(time, obj_ms,"g")
+legend(["True","M.S"])
+title("Objective function evaluation")
 xlabel('time in s');
 
 subplot(2+size(s,1),1,size(s,1)+2)
@@ -650,14 +629,11 @@ cs_true=cumsum(obj_true);
 cs_ms=cumsum(obj_ms);
 plot(time, cs_true,"r")
 hold on
-plot(time, cs_ms,"b")
-legend(["True: "+cs_true(end),"Estimated: "+cs_ms(end)])
-title("Cumulative objective function value")
+plot(time, cs_ms,"g")
+legend(["True: "+cs_true(end),"M.S: "+cs_ms(end)])
+title("Cumulative objective function evaluation")
 xlabel('time in s');
 
 figure;
 plot(time(1:end-1), U_MPC_ms, '-', time(1:end-1), U_MPC_true, '--');
-legend('Estimated', 'True');
-title('Elevator deflection');
-xlabel('time in s');
-ylabel('eta in rad');
+legend('M.S', 'True');
