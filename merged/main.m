@@ -369,7 +369,7 @@ smData.A_ms = AB_ms(:,1:sim.nx); smData.B_ms = AB_ms(:, sim.nx+1 : sim.nx+sim.nu
 model0.x_trim=trims_it(1:sim.nx,index);
 model0.u_trim(1)=trims_it(sim.nx+1,index);
 % Output true system (discrete) for comparison
-% AB_true = [sim.Ade sim.Bde]
+AB_true = [sim.Ade sim.Bde]
 % Plot delta and absolute parameter values
 for iP = 1:smConfig.np
     figure(iP+10), %clf;
@@ -454,7 +454,7 @@ ref_freq = 1/4;  % in Hz
 ref_endtime = 8;    % in s
 ref_theta = repmat(ref_amplitude,1,100);     % Step from trim value to new theta
 ref_theta = x_trim_true(4)-ref_amplitude + ref_amplitude* square(2*pi*ref_freq*(0:dt:ref_endtime));      % Square wave reference
-ref_theta = x_trim_true(4)-ref_amplitude + ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
+% ref_theta = x_trim_true(4)-ref_amplitude + ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
 ref = [ref_theta];
 s = [4]; %state(s) to control in concordance with ref order (in this case applying only theta control)
 H = 5; % MPC horizon
