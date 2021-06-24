@@ -164,7 +164,7 @@ model0.u_trim = mdls.xflr_pitch.u_trim;
 model0.sys.A(JA(:)) = mdls.xflr_pitch.sys.A(JA(:)); clear JA
 model0.sys.B(JB(:)) = mdls.xflr_pitch.sys.B(JB(:)); clear JB
 % Select data for estimation
-identData = data.nonlin;
+identData = data.real;
 
 % Discretize initial model
 Ac0 = model0.sys.A;
@@ -426,7 +426,7 @@ for var = 1:sim.nx
     legend(["M.S estimation 1-step","ini","data"])
 end
 
-return
+% return
 %% Maneuver with linearized model and membership model the non linear simulator
 see_progress=true; %show progress bar
 %AB_ms=[A_ms B_ms];
@@ -454,7 +454,7 @@ ref_freq = 1/4;  % in Hz
 ref_endtime = 8;    % in s
 ref_theta = repmat(ref_amplitude,1,100);     % Step from trim value to new theta
 ref_theta = x_trim_true(4)-ref_amplitude + ref_amplitude* square(2*pi*ref_freq*(0:dt:ref_endtime));      % Square wave reference
-% ref_theta = x_trim_true(4)-ref_amplitude + ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
+ref_theta = x_trim_true(4)-ref_amplitude + ref_amplitude* cos(2*pi*ref_freq*(0:dt:ref_endtime));      % Sine wave reference
 ref = [ref_theta];
 s = [4]; %state(s) to control in concordance with ref order (in this case applying only theta control)
 H = 5; % MPC horizon
@@ -463,15 +463,15 @@ disp("Controlling state variable ["+char(mdls.xflr_pitch.sys.StateName(s))+"] fo
 
 % Calculate noise bounds:
 DW_ms = DXP - x_trim_ms - AB_ms * [DX-x_trim_ms; DU-u_trim_ms];
-DW_true = DXP - x_trim_true - AB_true * [DX-x_trim_true; DU-u_trim_true];
+% DW_true = DXP_true - x_trim_true - AB_true * [DX_true-x_trim_true; DU_true-u_trim_true];
 w_max_ms = max(abs(DW_ms), [], 2);
-w_max_true = max(abs(DW_true), [], 2);
+% w_max_true = max(abs(DW_true), [], 2);
 
 %w_max_ms = zeros(4,1);
 
 Hw = [eye(nx);-eye(nx)];
 W_ms = Polyhedron(Hw,[w_max_ms; w_max_ms]);
-W_true = Polyhedron(Hw,[w_max_true; w_max_true]);
+% W_true = Polyhedron(Hw,[w_max_true; w_max_true]);
 
 % Ancillary/Tube Controller for Constraint Tightening
 use_tube_controller = true;
